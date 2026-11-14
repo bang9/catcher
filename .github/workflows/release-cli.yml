@@ -1,5 +1,5 @@
-# Publish the CLI to npm with provenance when a cli-v* tag is pushed (e.g. cli-v0.1.0). Needs NPM_TOKEN in the
-# "npm" environment.
+# Publish the CLI to npm when a cli-v* tag is pushed (e.g. cli-v0.1.1), via npm trusted publishing (OIDC) bound to
+# this workflow file and the "npm" environment. No npm token is stored anywhere.
 name: release cli
 
 on:
@@ -24,7 +24,7 @@ jobs:
       - name: Check tag matches the package version
         run: test "cli-v$(node -p "require('./apps/cli/package.json').version")" = "${GITHUB_REF_NAME}"
 
-  # only this job can mint the provenance token, and it runs no tests or third-party test code
+  # only this job can mint the OIDC token; npm trusted publishing (no npm token anywhere) — provenance is automatic
   publish:
     needs: test
     runs-on: ubuntu-latest
@@ -38,12 +38,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false # never use caching in release builds
+      - name: npm with trusted publishing support (>= 11.5.1)
+        run: npm install -g npm@11.21.1
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @bang9/catcher build
       - name: Publish
         working-directory: apps/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --access public
+        # the bundle inlines every dependency; drop the workspace-only devDependencies from the published manifest
+        run: |
+          npm pkg delete devDependencies scripts
+          npm publish --access public
