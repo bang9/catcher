@@ -96,7 +96,13 @@ export interface AgentClientOptions {
   fetch?: Fetch;
   save?: (s: AgentState) => void;
   directoryCache?: DirectoryCache;
+  /** ids this agent already received — anything seen again is a replay and is dropped */
+  seen?: (id: string) => boolean;
+  /** this agent's own sent messages by id — replies and answers must point at one of them */
+  outgoing?: (id: string) => { type: string; to: string } | null;
 }
+
+const OWNER_REQUESTS = ['ask', 'confirm', 'otp', 'grant-request'];
 
 export function nameOfParty(trust: Trust, id: string): string {
   if (id === trust.ownerId) return 'owner';
@@ -109,6 +115,8 @@ export class AgentClient {
   api: Api;
   private save: (s: AgentState) => void;
   private dirCache: DirectoryCache | undefined;
+  private seen: (id: string) => boolean;
+  private outgoing: AgentClientOptions['outgoing'];
   private cachedTrust: Trust | null = null;
   private cachedVersion = 0;
 
@@ -118,6 +126,8 @@ export class AgentClient {
     this.api = new Api({ server: state.server, callerId: state.agentId, identity: this.identity, fetch: opts.fetch });
     this.save = opts.save ?? (() => {});
     this.dirCache = opts.directoryCache;
+    this.seen = opts.seen ?? (() => false);
+    this.outgoing = opts.outgoing;
   }
 
   /** Redeem a pairing code. The agent is pending until the owner checks the fingerprint and approves in the app. */
@@ -246,7 +256,7 @@ export class AgentClient {
     type: T,
     to: string,
     body: BodyByType[T],
-    opts: { scope?: string; ref?: string; expiresAt?: number; id?: string } = {},
+    opts: { scope?: string; ref?: string; expiresAt?: number; id?: string; grantId?: string } = {},
   ): Promise<{ id: string; held: boolean; duplicate: boolean }> {
     const trust = await this.trust();
     const toId = await this.resolve(to);
@@ -259,10 +269,14 @@ export class AgentClient {
       if (!grant) {
         throw new PolicyError(
           'no_grant',
-          `no grant lets ${this.state.name} send "${scope}" to ${to} — ask the owner: catcher grant ${this.state.name} ${to} ${scope}`,
+          `no grant lets ${this.state.name} send "${scope}" to ${nameOfParty(trust, toId)} — ask the owner: catcher grant ${this.state.name} ${nameOfParty(trust, toId)} ${scope}`,
         );
       }
       grantId = grant.grantId;
+    }
+    if (agentToAgent && type === 'reply') {
+      if (!opts.grantId) throw new PolicyError('no_grant', 'a reply to another agent needs the grant of its message');
+      grantId = opts.grantId;
     }
     const id = opts.id ?? randomId('m');
     const parties = [...new Set([toId, trust.ownerId, this.state.agentId])];
@@ -292,7 +306,8 @@ export class AgentClient {
       if (!(e instanceof ApiError) || e.code !== 'stale_seq') throw e;
       // state file was restored or copied — resume from the server's counter
       const me = await this.me();
-      this.state.seq = me.lastSeq;
+      // never move the counter back: a lower value from the relay would let it hide a dropped message
+      this.state.seq = Math.max(this.state.seq, me.lastSeq);
       res = await post(this.nextSeq());
     }
     return { id, held: res.held, duplicate: res.duplicate };
@@ -309,8 +324,19 @@ export class AgentClient {
     for (const row of rows) {
       const c = row.envelope.core;
       try {
-        if (c.to !== this.state.agentId && c.from !== this.state.agentId)
-          throw new PolicyError('not_mine', 'not addressed to this agent');
+        if (c.to !== this.state.agentId) throw new PolicyError('not_mine', 'not addressed to this agent');
+        if (this.seen(c.id)) throw new PolicyError('replay', 'already received this message');
+        if (c.type === 'reply' || c.type === 'answer') {
+          const sent = this.outgoing?.(c.ref ?? '');
+          if (this.outgoing && (!sent || sent.to !== c.from)) {
+            throw new PolicyError('bad_ref', `${c.type} does not answer a message this agent sent to ${c.from}`);
+          }
+          if (sent && c.type === 'answer' && !OWNER_REQUESTS.includes(sent.type)) {
+            throw new PolicyError('bad_ref', 'answer to something that was not a request');
+          }
+          if (sent && c.type === 'reply' && sent.type !== 'message')
+            throw new PolicyError('bad_ref', 'reply to a non-message');
+        }
         try {
           checkEnvelope(trust, row.envelope, { release: row.release });
         } catch (e) {

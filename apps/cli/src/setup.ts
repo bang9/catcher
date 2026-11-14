@@ -1,7 +1,7 @@
 // `catcher setup <agent>` — teach a coding agent to use catcher: a skill/instructions file plus, for Claude Code,
 // hooks that surface the inbox at session start and on every prompt (the heartbeat for an interactive session).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -48,7 +48,10 @@ Rules
 function writeFile(path: string, text: string, dry: boolean, changes: string[]): void {
   if (!dry) {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, text);
+    // write-then-rename: a crash never leaves a half-written settings.json behind
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, text);
+    renameSync(tmp, path);
   }
   let verb = 'wrote';
   if (dry) verb = 'would write';
@@ -108,6 +111,6 @@ ${text}`;
   const end = current.indexOf(MARK_END);
   if (start >= 0 && end > start) next = current.slice(0, start) + block + current.slice(end + MARK_END.length + 1);
   writeFile(agentsPath, next, dry, changes);
-  changes.push('For an unattended Codex agent, run a heartbeat: catcher watch --exec "codex exec -"');
+  changes.push('For an unattended Codex agent, run a heartbeat: catcher watch --prompt --exec "codex exec -"');
   return changes;
 }

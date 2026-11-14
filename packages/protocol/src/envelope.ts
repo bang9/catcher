@@ -99,6 +99,8 @@ export interface EnvelopeCore {
   expiresAt: number | null;
   nonce: string;
   ephPub: string;
+  /** SHA-256 commitment to the body key — every recipient must unwrap the same key (owner audit copy == target copy) */
+  keyHash: string;
 }
 
 export interface Wrap {
@@ -151,6 +153,10 @@ function wrapKey(shared: Uint8Array, ephPub: Uint8Array, recipientBoxPub: Uint8A
   return derive(shared, 'catcher/v1/wrap', 32, concat(ephPub, recipientBoxPub));
 }
 
+function keyCommitment(key: Uint8Array): string {
+  return b64(sha256(concat(utf8('catcher/v1/key'), key)));
+}
+
 function wrapAad(envelopeId: string, recipientId: string): Uint8Array {
   return utf8(`catcher/v1/wrap|${envelopeId}|${recipientId}`);
 }
@@ -166,6 +172,7 @@ export function sealEnvelope<T extends EnvelopeType>(input: SealInput<T>): Envel
   const ephSecret = random(32);
   const ephPub = boxPublic(ephSecret);
   const nonce = random(24);
+  const key = random(32);
   const core: EnvelopeCore = {
     v: 1,
     id: input.id,
@@ -181,12 +188,12 @@ export function sealEnvelope<T extends EnvelopeType>(input: SealInput<T>): Envel
     expiresAt: input.expiresAt ?? null,
     nonce: b64(nonce),
     ephPub: b64(ephPub),
+    keyHash: keyCommitment(key),
   };
   const need = requiredRecipients(core);
   const byId = new Map(input.recipients.map((r) => [r.id, r]));
   const missing = need.filter((id) => !byId.has(id));
   if (missing.length) throw new Error(`no box key for recipient ${missing.join(', ')}`);
-  const key = random(32);
   const wraps: Wrap[] = need.map((rid) => {
     const recipientBox = unb64(byId.get(rid)!.boxPub);
     const kek = wrapKey(sharedSecret(ephSecret, recipientBox), ephPub, recipientBox);
@@ -213,8 +220,12 @@ export function verifyEnvelope(env: Envelope, senderSignPub: string): void {
   if (c.type === 'answer' && c.from !== c.ownerId) throw new Error('only the owner can answer');
   if (OWNER_REQUEST_TYPES.includes(c.type) && c.to !== c.ownerId) throw new Error(`${c.type} goes to the owner only`);
   const agentToAgent = c.from !== c.ownerId && c.to !== c.ownerId;
-  if (agentToAgent && c.type === 'message' && (!c.scope || !c.grantId))
+  if (agentToAgent && c.type === 'message' && (!c.scope || !c.grantId)) {
     throw new Error('agent messages need a scope and a grant');
+  }
+  // a reply between agents names the grant of the message it answers (held the same way when that grant needs approval)
+  if (agentToAgent && c.type === 'reply' && !c.grantId) throw new Error('agent replies need the grant of the message');
+  if (typeof c.keyHash !== 'string') throw new Error('envelope has no key commitment');
   if (c.from === c.to) throw new Error('cannot send to yourself');
   const ids = env.wraps.map((w) => w.to);
   if (new Set(ids).size !== ids.length) throw new Error('duplicate recipient');
@@ -236,6 +247,7 @@ export function openEnvelope<T extends EnvelopeType = EnvelopeType>(
   const ephPub = unb64(env.core.ephPub);
   const kek = wrapKey(sharedSecret(me.boxSecret, ephPub), ephPub, me.boxPub);
   const key = unseal(kek, unb64(wrap.nonce), unb64(wrap.key), wrapAad(env.core.id, me.id));
+  if (keyCommitment(key) !== env.core.keyHash) throw new Error('body key does not match the commitment');
   const plaintext = unseal(key, unb64(env.core.nonce), unb64(env.ct), bodyAad(env.core));
   return JSON.parse(fromUtf8(plaintext)) as BodyByType[T];
 }

@@ -40,5 +40,8 @@ web page can still send a perfectly signed request. catcher limits the blast rad
 - Push notifications carry only metadata (agent name and request type), never content.
 - A relay can withhold everything (denial of service); agents and the app surface errors and gaps but cannot force
   delivery. Likewise it can delay a new revocation reaching an agent (freeze), though it cannot roll one back.
+- The realtime stream takes its signed auth in the URL (WebSocket clients cannot set headers); a captured URL can open
+  listeners for 5 minutes. Those listeners only ever receive "something new" signals, never content.
+- Any owner can register an Expo push token it learned for its own account; notifications carry only metadata.
 - Trust on first use at pairing: the fingerprint comparison is the only defence against a malicious relay swapping keys
   during registration. Skipping it defeats it.

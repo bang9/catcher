@@ -2,11 +2,17 @@
 
 import { AUTH_HEADER, AUTH_WINDOW_MS, authBytes, type ParsedAuth, parseAuth, unb64 } from '@catcher/protocol';
 
+interface RateLimiter {
+  limit(input: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   DB: D1Database;
   /** realtime notifier, one per owner — carries only "something new for X" signals */
   HUB: DurableObjectNamespace;
-  REGISTER_LIMIT?: { limit(input: { key: string }): Promise<{ success: boolean }> };
+  REGISTER_LIMIT?: RateLimiter;
+  OWNER_LIMIT?: RateLimiter;
+  SEND_LIMIT?: RateLimiter;
   ENVELOPE_TTL_DAYS?: string;
   /** optional Expo access token when push security is turned on for the project */
   EXPO_ACCESS_TOKEN?: string;
@@ -33,6 +39,8 @@ export function json(data: unknown, status = 200): Response {
 
 export function errorResponse(e: unknown): Response {
   if (e instanceof HttpError) return json({ error: { code: e.code, message: e.message } }, e.status);
+  // malformed input that slipped past validation (missing fields) — the caller's fault, not ours
+  if (e instanceof TypeError) return json({ error: { code: 'bad_request', message: 'malformed request' } }, 400);
   console.error(e);
   return json({ error: { code: 'internal', message: 'internal error' } }, 500);
 }

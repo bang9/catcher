@@ -56,6 +56,12 @@ function later(ctx: ExecutionContext, p: Promise<unknown>): void {
   ctx.waitUntil(p.catch((e) => console.warn('background task failed', e)));
 }
 
+function clampLimit(url: URL, fallback: number, max: number): number {
+  const n = Math.floor(Number(url.searchParams.get('limit') ?? fallback));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, max);
+}
+
 function freshTime(t: number, now: number): void {
   if (!Number.isSafeInteger(t) || Math.abs(now - t) > CLOCK_SKEW_MS) {
     bad('statement time is too far from now (check the device clock)', 'stale');
@@ -67,6 +73,12 @@ function statementError(e: unknown): never {
   return bad((e as Error).message, 'bad_statement');
 }
 
+async function limitOrThrow(limiter: Env['REGISTER_LIMIT'], key: string): Promise<void> {
+  if (!limiter) return;
+  const { success } = await limiter.limit({ key });
+  if (!success) throw new HttpError(429, 'rate_limited', 'too many requests; wait a minute');
+}
+
 async function bumpDirectory(env: Env, ctx: ExecutionContext, ownerId: string): Promise<void> {
   await env.DB.prepare('UPDATE owners SET dir_version = dir_version + 1 WHERE id = ?').bind(ownerId).run();
   later(ctx, signal(env, ownerId, { to: '*', kind: 'directory' }));
@@ -75,8 +87,10 @@ async function bumpDirectory(env: Env, ctx: ExecutionContext, ownerId: string): 
 // ─── owner ───────────────────────────────────────────────────────────────────
 
 /** Unauthenticated: the genesis key signs itself; the owner id is derived from it. */
-export async function createOwner(env: Env, body: Uint8Array): Promise<Response> {
+export async function createOwner(env: Env, request: Request, body: Uint8Array): Promise<Response> {
+  await limitOrThrow(env.OWNER_LIMIT, `owner:${request.headers.get('cf-connecting-ip') ?? 'local'}`);
   const req = parseJson<CreateOwnerRequest>(body);
+  if (!Array.isArray(req.chain)) bad('chain is required');
   const first = req.chain?.[0];
   if (!first || req.chain.length !== 1) bad('send exactly the genesis owner key');
   const ownerId = first.payload.ownerId;
@@ -255,7 +269,7 @@ export async function postGrant(env: Env, caller: Caller, body: Uint8Array, ctx:
   let requireApproval = 0;
   if (g.requireApproval) requireApproval = 1;
   await env.DB.prepare(
-    'INSERT INTO grants (id, owner_id, from_id, to_id, statement, scopes, require_approval, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET statement = excluded.statement, scopes = excluded.scopes, require_approval = excluded.require_approval, expires_at = excluded.expires_at',
+    'INSERT INTO grants (id, owner_id, from_id, to_id, statement, scopes, require_approval, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET statement = excluded.statement, scopes = excluded.scopes, require_approval = excluded.require_approval, expires_at = excluded.expires_at WHERE grants.owner_id = excluded.owner_id',
   )
     .bind(
       g.grantId,
@@ -352,7 +366,7 @@ export async function dropHeld(env: Env, caller: Caller, envelopeId: string): Pr
 export async function ownerFeed(env: Env, caller: Caller, url: URL, ctx: ExecutionContext): Promise<Response> {
   requireOwner(caller);
   const after = Number(url.searchParams.get('after') ?? '0') || 0;
-  const limit = Math.min(Number(url.searchParams.get('limit') ?? '200') || 200, 500);
+  const limit = clampLimit(url, 200, 500);
   const { results } = await env.DB.prepare(
     'SELECT * FROM envelopes WHERE owner_id = ? AND cursor > ? ORDER BY cursor LIMIT ?',
   )
@@ -373,7 +387,7 @@ export async function ownerFeed(env: Env, caller: Caller, url: URL, ctx: Executi
 /** Held state changes after the fact (release / drop) — the app re-reads these by id. */
 export async function envelopeStates(env: Env, caller: Caller, url: URL): Promise<Response> {
   requireOwner(caller);
-  const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).slice(0, 100);
+  const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).slice(0, 90);
   if (!ids.length) return json({ envelopes: [] });
   const { results } = await env.DB.prepare(
     `SELECT * FROM envelopes WHERE owner_id = ? AND id IN (${ids.map(() => '?').join(',')})`,
@@ -386,14 +400,10 @@ export async function envelopeStates(env: Env, caller: Caller, url: URL): Promis
 // ─── agent ───────────────────────────────────────────────────────────────────
 
 export async function register(env: Env, req: Request, body: Uint8Array, ctx: ExecutionContext): Promise<Response> {
-  if (env.REGISTER_LIMIT) {
-    const ip = req.headers.get('cf-connecting-ip') ?? 'local';
-    const { success } = await env.REGISTER_LIMIT.limit({ key: `register:${ip}` });
-    if (!success) throw new HttpError(429, 'rate_limited', 'too many registration attempts; wait a minute');
-  }
+  await limitOrThrow(env.REGISTER_LIMIT, `register:${req.headers.get('cf-connecting-ip') ?? 'local'}`);
   const { statement } = parseJson<RegisterRequest>(body);
   const p = statement?.payload;
-  if (p?.kind !== 'register') bad('expected a register statement');
+  if (p?.kind !== 'register' || typeof p.signPub !== 'string') bad('expected a register statement');
   try {
     verifyStatement(statement, 'register', p.signPub);
   } catch (e) {
@@ -475,7 +485,7 @@ async function touch(env: Env, caller: Caller, now: number): Promise<void> {
 /** The heartbeat. One indexed read when empty; dirVersion tells the agent whether its cached directory is stale. */
 export async function inbox(env: Env, caller: Caller, url: URL, ctx: ExecutionContext): Promise<Response> {
   requireActiveAgentOrOwner(caller);
-  const limit = Math.min(Number(url.searchParams.get('limit') ?? '50') || 50, 200);
+  const limit = clampLimit(url, 50, 200);
   const [rows, version] = await env.DB.batch([
     env.DB.prepare(
       'SELECT * FROM envelopes WHERE to_id = ? AND acked_at IS NULL AND held = 0 ORDER BY cursor LIMIT ?',
@@ -548,6 +558,7 @@ export async function postEnvelope(
   ctx: ExecutionContext,
 ): Promise<Response> {
   requireActiveAgentOrOwner(caller);
+  await limitOrThrow(env.SEND_LIMIT, `send:${caller.id}`);
   const { envelope } = parseJson<PostEnvelopeRequest>(body);
   structural(envelope);
   const c = envelope.core;
@@ -558,13 +569,14 @@ export async function postEnvelope(
     bad('message time is too far from now (check the device clock)', 'stale');
 
   // idempotent retry: same id from the same sender returns the stored row
-  const existing = await env.DB.prepare('SELECT cursor, from_id, held FROM envelopes WHERE id = ?').bind(c.id).first<{
-    cursor: number;
-    from_id: string;
-    held: number;
-  }>();
+  const existing = await env.DB.prepare('SELECT cursor, from_id, held, envelope FROM envelopes WHERE id = ?')
+    .bind(c.id)
+    .first<{ cursor: number; from_id: string; held: number; envelope: string }>();
   if (existing) {
-    if (existing.from_id !== caller.id) throw new HttpError(409, 'id_taken', 'envelope id already used');
+    // only an identical resend is a retry; a new message under an old id is refused (no replaying old answers)
+    const same =
+      existing.from_id === caller.id && (JSON.parse(existing.envelope) as Envelope).ctHash === envelope.ctHash;
+    if (!same) throw new HttpError(409, 'id_taken', 'envelope id already used');
     return json({ cursor: existing.cursor, held: existing.held === 1, duplicate: true });
   }
 
@@ -586,34 +598,43 @@ export async function postEnvelope(
   let held = 0;
   const agentToAgent = c.from !== caller.ownerId && c.to !== caller.ownerId;
   if (c.from === caller.ownerId && !['message', 'answer'].includes(c.type)) bad(`owner does not send ${c.type}`);
+  if (agentToAgent && c.type !== 'message' && c.type !== 'reply') {
+    throw new HttpError(403, 'bad_type', `agents do not send ${c.type} to each other`);
+  }
   if (agentToAgent && c.type === 'message') {
     if (!c.grantId || !c.scope) throw new HttpError(403, 'no_grant', 'agent messages need a scope and a grant');
-    const g = await env.DB.prepare(
-      'SELECT scopes, require_approval FROM grants WHERE id = ? AND from_id = ? AND to_id = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?)',
-    )
-      .bind(c.grantId, c.from, c.to, now)
-      .first<{ scopes: string; require_approval: number }>();
-    if (!g || !(JSON.parse(g.scopes) as string[]).includes(c.scope)) {
+    const g = await liveGrant(env, c.grantId, now);
+    if (!g || g.from_id !== c.from || g.to_id !== c.to || !(JSON.parse(g.scopes) as string[]).includes(c.scope)) {
       throw new HttpError(403, 'no_grant', `no live grant lets ${c.from} send ${c.scope} to ${c.to}`);
     }
     held = g.require_approval;
-  } else if (agentToAgent && c.type !== 'reply') {
-    throw new HttpError(403, 'bad_type', `agents do not send ${c.type} to each other`);
   }
 
-  // replies and answers must point at a message that went the other way
+  // replies answer a message (not a reply) sent the other way, once; answers settle an owner request, once
   if (c.type === 'reply' || c.type === 'answer') {
-    const ref = await env.DB.prepare('SELECT from_id, to_id FROM envelopes WHERE id = ? AND owner_id = ?')
+    const ref = await env.DB.prepare(
+      'SELECT from_id, to_id, type, envelope FROM envelopes WHERE id = ? AND owner_id = ?',
+    )
       .bind(c.ref, caller.ownerId)
-      .first<{ from_id: string; to_id: string }>();
+      .first<{ from_id: string; to_id: string; type: string; envelope: string }>();
     if (!ref || ref.from_id !== c.to || ref.to_id !== c.from) {
       throw new HttpError(403, 'bad_ref', `${c.type} must answer a message ${c.to} sent to ${c.from}`);
     }
-    if (c.type === 'answer') {
-      const dup = await env.DB.prepare("SELECT id FROM envelopes WHERE ref = ? AND type = 'answer'")
-        .bind(c.ref)
-        .first();
-      if (dup) throw new HttpError(409, 'already_answered', 'this request already has an answer');
+    if (c.type === 'reply' && ref.type !== 'message')
+      throw new HttpError(403, 'bad_ref', 'replies answer messages only');
+    if (c.type === 'answer' && !OWNER_REQUEST_TYPES.includes(ref.type as never)) {
+      throw new HttpError(403, 'bad_ref', 'answers settle asks, confirms, otp and grant requests only');
+    }
+    const dup = await env.DB.prepare('SELECT id FROM envelopes WHERE ref = ? AND from_id = ? AND type = ?')
+      .bind(c.ref, c.from, c.type)
+      .first();
+    if (dup) throw new HttpError(409, 'already_answered', `this message already has a ${c.type}`);
+    if (c.type === 'reply' && agentToAgent) {
+      const refGrant = (JSON.parse(ref.envelope) as Envelope).core.grantId;
+      const g = await liveGrant(env, c.grantId ?? '', now);
+      if (!g || c.grantId !== refGrant)
+        throw new HttpError(403, 'no_grant', 'reply must name the live grant of the message');
+      held = g.require_approval;
     }
   }
 
@@ -659,6 +680,14 @@ export async function postEnvelope(
     }
   }
   return json({ cursor, held: held === 1, duplicate: false }, 201);
+}
+
+async function liveGrant(env: Env, grantId: string, now: number) {
+  return env.DB.prepare(
+    'SELECT from_id, to_id, scopes, require_approval FROM grants WHERE id = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?)',
+  )
+    .bind(grantId, now)
+    .first<{ from_id: string; to_id: string; scopes: string; require_approval: number }>();
 }
 
 // ─── housekeeping ────────────────────────────────────────────────────────────

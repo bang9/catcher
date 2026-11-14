@@ -68,6 +68,7 @@ const cert = (agentId: string, who: Identity, signer = owner) =>
       provider: 'test',
       issuedAt: NOW,
       expiresAt: NOW + 86_400_000,
+      revocationFloor: 0,
     },
     signer,
   );
@@ -105,8 +106,8 @@ test('frozen vectors: keys, ids, fingerprint, recovery code, signatures', () => 
     recipients: [party(ownerId, owner), party(A, agentA)],
     random: det('v'),
   });
-  assert.equal(env.ctHash, 'cbVU5OQFrejRhu1VVLKg8gYDwQyFNL_sdtTsotKVeFY');
-  assert.equal(env.sig, '0UWL0EbVeoRbAYbi2VbAdPWGs0Hx-JvEHb8jIG-Q8UnugFNzULmxf9lbO4BQ3LXlI4XRGsR78R1VC25KcBH1Cw');
+  assert.equal(env.ctHash, 'rVb4kYxzj1B2sSvruk899veoqaOo282-IOs2ZdkvAkY');
+  assert.equal(env.sig, '8g1wR91ut9rhrPtX83yPuvshra2k3WXjcf6jwnFQNt5dJAQ-LnYmlW5n03tCiRAfL5WtE-8av3_-GD9W8noPAg');
   assert.equal(
     signStatement({ kind: 'pairing', ownerId, issuedAt: NOW }, owner).sig,
     'GTkP2wrWAKF11LFxPdcyacbmpVrKD9XL2jyixpG1eBJ4HMfWXuTmQCD5BkU-IMoUjCsnd8x6x1JHu2JSU6TnBA',
@@ -301,4 +302,112 @@ test('statements reject the wrong kind or signer', () => {
     () => verifyStatement({ ...s, payload: { ...s.payload, issuedAt: NOW + 1 } }, 'pairing', b64(owner.signPub)),
     /invalid/,
   );
+});
+
+test('key commitment: a sender cannot give the owner a different body key than the target', () => {
+  const env = sealAB();
+  const other = sealAB({ body: { text: 'for the owner' } });
+  // swap the owner's wrap for one from another envelope: signature check catches the edit first
+  const swapped = {
+    ...env,
+    wraps: env.wraps.map((w) => (w.to === ownerId && other.wraps.find((o) => o.to === ownerId)) || w),
+  };
+  assert.throws(() => verifyEnvelope(swapped, b64(agentA.signPub)), /signature/);
+  // and a recipient whose unwrapped key does not match keyHash refuses to decrypt
+  const forgedCore = { ...env, core: { ...env.core, keyHash: other.core.keyHash } };
+  assert.throws(() => openEnvelope(forgedCore, { id: B, ...agentB }), /commitment/);
+});
+
+test('policy: agent replies name a linking grant and are held like messages', () => {
+  const grantId = `g_${'1'.repeat(16)}`;
+  const grant = signStatement(
+    {
+      kind: 'grant',
+      ownerId,
+      grantId,
+      from: A,
+      to: B,
+      scopes: ['message'],
+      requireApproval: true,
+      issuedAt: NOW,
+      expiresAt: null,
+    },
+    owner,
+  );
+  const trust = buildTrust(directory({ grants: [grant] }), pin, 0, NOW);
+  const reply = sealEnvelope({
+    id: `m_${'c'.repeat(26)}`,
+    ownerId,
+    from: B,
+    to: A,
+    type: 'reply',
+    seq: 1,
+    ref: `m_${'a'.repeat(26)}`,
+    grantId,
+    body: { text: 'ok' },
+    createdAt: NOW,
+    sender: agentB,
+    recipients: [party(A, agentA), party(B, agentB), party(ownerId, owner)],
+  });
+  assert.throws(
+    () => checkEnvelope(trust, reply, { now: NOW }),
+    (e: unknown) => (e as PolicyError).code === 'held',
+  );
+  const release = signStatement(
+    { kind: 'release', ownerId, envelopeId: reply.core.id, ctHash: reply.ctHash, issuedAt: NOW },
+    owner,
+  );
+  checkEnvelope(trust, reply, { now: NOW, release });
+  const noGrant = sealEnvelope({
+    id: `m_${'d'.repeat(26)}`,
+    ownerId,
+    from: B,
+    to: A,
+    type: 'reply',
+    seq: 2,
+    ref: `m_${'a'.repeat(26)}`,
+    body: { text: 'ok' },
+    createdAt: NOW,
+    sender: agentB,
+    recipients: [party(A, agentA), party(B, agentB), party(ownerId, owner)],
+  });
+  assert.throws(() => verifyEnvelope(noGrant, b64(agentB.signPub)), /grant of the message/);
+});
+
+test('revocation floor: a cert signed after revocation v3 rejects a directory with no list', () => {
+  const c = signStatement(
+    {
+      kind: 'cert',
+      ownerId,
+      agentId: A,
+      name: 'a',
+      ...publicKeys(agentA),
+      device: 'd',
+      provider: 'p',
+      issuedAt: NOW,
+      expiresAt: NOW + 1e6,
+      revocationFloor: 3,
+    },
+    owner,
+  );
+  assert.throws(() => buildTrust(directory({ certs: [c] }), pin, 0, NOW), /older revocation list/);
+});
+
+test('an agent called "owner" is never trusted', () => {
+  const c = signStatement(
+    {
+      kind: 'cert',
+      ownerId,
+      agentId: A,
+      name: 'owner',
+      ...publicKeys(agentA),
+      device: 'd',
+      provider: 'p',
+      issuedAt: NOW,
+      expiresAt: NOW + 1e6,
+      revocationFloor: 0,
+    },
+    owner,
+  );
+  assert.equal(buildTrust(directory({ certs: [c] }), pin, 0, NOW).agents.has(A), false);
 });

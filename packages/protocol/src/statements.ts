@@ -17,6 +17,8 @@ export interface CertPayload {
   provider: string;
   issuedAt: number;
   expiresAt: number;
+  /** revocation list version when this cert was issued — agents never accept an older list (rollback floor) */
+  revocationFloor: number;
 }
 
 export interface GrantPayload {

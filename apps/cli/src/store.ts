@@ -92,6 +92,19 @@ export class Profile {
     appendFileSync(this.historyPath, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
   }
 
+  /** Ids this agent acked — the relay serving one again is a replay. */
+  markAcked(ids: string[]): void {
+    if (!ids.length) return;
+    ensureDir(this.dir);
+    appendFileSync(join(this.dir, 'acked.txt'), `${ids.join('\n')}\n`, { mode: 0o600 });
+  }
+
+  ackedIds(): Set<string> {
+    const path = join(this.dir, 'acked.txt');
+    if (!existsSync(path)) return new Set();
+    return new Set(readFileSync(path, 'utf8').split('\n').filter(Boolean));
+  }
+
   history(): HistoryEntry[] {
     if (!existsSync(this.historyPath)) return [];
     const out: HistoryEntry[] = [];
@@ -111,24 +124,35 @@ export interface HistoryEntry {
   direction: 'in' | 'out';
   id: string;
   type: string;
+  /** names, for people */
   from: string;
   to: string;
+  /** ids, for matching replies and answers */
+  fromId?: string;
+  toId?: string;
+  grantId?: string | null;
   ref: string | null;
   scope: string | null;
   at: number;
   body: unknown;
 }
 
-export function historyFromReceived(r: Received): HistoryEntry {
+/** `redact` keeps one-time codes off the disk once they have been handed over. */
+export function historyFromReceived(r: Received, redact = false): HistoryEntry {
+  let body = r.body;
+  if (redact) body = { code: '[delivered]' };
   return {
     direction: 'in',
     id: r.id,
     type: r.type,
     from: r.from.name,
     to: r.to,
+    fromId: r.from.id,
+    toId: r.to,
+    grantId: r.grantId,
     ref: r.ref,
     scope: r.scope,
     at: r.createdAt,
-    body: r.body,
+    body,
   };
 }

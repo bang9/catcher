@@ -15,6 +15,9 @@ import {
   verifyStatement,
 } from './statements.ts';
 
+/** No agent may be called this — it always means the owner. */
+export const RESERVED_NAME = 'owner';
+
 export interface Directory {
   ownerId: string;
   ownerChain: Signed<OwnerKeyPayload>[];
@@ -63,21 +66,27 @@ export function buildTrust(dir: Directory, pin: OwnerPin, minRevocationVersion: 
     for (const a of r.agents) revokedAgents.add(a);
     for (const g of r.grants) revokedGrants.add(g);
   }
-  if (revocationVersion < minRevocationVersion) {
+  const agents = new Map<string, CertPayload>();
+  let floor = minRevocationVersion;
+  for (const s of dir.certs) {
+    let c: CertPayload;
+    try {
+      c = verifyStatement(s, 'cert', owner.signPub);
+    } catch {
+      // not signed by the current owner key — ignore
+      continue;
+    }
+    if (c.ownerId !== pin.ownerId) continue;
+    // any genuine cert raises the floor, even one that is revoked or expired now
+    if (Number.isSafeInteger(c.revocationFloor) && c.revocationFloor > floor) floor = c.revocationFloor;
+    if (c.expiresAt <= now || revokedAgents.has(c.agentId) || c.name === RESERVED_NAME) continue;
+    agents.set(c.agentId, c);
+  }
+  if (revocationVersion < floor) {
     throw new PolicyError(
       'revocations_rolled_back',
       'server returned an older revocation list than this agent has seen',
     );
-  }
-  const agents = new Map<string, CertPayload>();
-  for (const s of dir.certs) {
-    try {
-      const c = verifyStatement(s, 'cert', owner.signPub);
-      if (c.ownerId !== pin.ownerId || c.expiresAt <= now || revokedAgents.has(c.agentId)) continue;
-      agents.set(c.agentId, c);
-    } catch {
-      // not signed by the current owner key — ignore
-    }
   }
   const grants = new Map<string, GrantPayload>();
   for (const s of dir.grants) {
@@ -150,21 +159,25 @@ export function checkEnvelope(
     if (g.from !== c.from || g.to !== c.to || !c.scope || !g.scopes.includes(c.scope)) {
       throw new PolicyError('no_grant', `grant ${g.grantId} does not cover ${c.from} → ${c.to} for ${c.scope ?? '?'}`);
     }
-    if (g.requireApproval) {
-      if (!opts.release) throw new PolicyError('held', 'waiting for the owner to approve this message');
-      const r = verifyStatement(opts.release, 'release', trust.owner.signPub);
-      if (r.envelopeId !== c.id || r.ctHash !== env.ctHash || r.ownerId !== trust.ownerId) {
-        throw new PolicyError('bad_release', 'owner approval does not match this message');
-      }
-    }
+    if (g.requireApproval) requireRelease(trust, env, opts.release);
     return;
   }
   if (c.type === 'reply') {
-    const linked = [...trust.grants.values()].some(
-      (g) => (g.from === c.to && g.to === c.from) || (g.from === c.from && g.to === c.to),
-    );
-    if (!linked) throw new PolicyError('no_grant', 'reply between agents with no live grant');
+    // must name a live grant that links the two agents; held exactly like messages under that grant
+    let g: GrantPayload | undefined;
+    if (c.grantId) g = trust.grants.get(c.grantId);
+    const links = g && ((g.from === c.to && g.to === c.from) || (g.from === c.from && g.to === c.to));
+    if (!g || !links) throw new PolicyError('no_grant', 'reply between agents with no live grant');
+    if (g.requireApproval) requireRelease(trust, env, opts.release);
     return;
   }
   throw new PolicyError('bad_type', `agents do not send ${c.type} to each other`);
+}
+
+function requireRelease(trust: Trust, env: Envelope, release: Signed<ReleasePayload> | null | undefined): void {
+  if (!release) throw new PolicyError('held', 'waiting for the owner to approve this message');
+  const r = verifyStatement(release, 'release', trust.owner.signPub);
+  if (r.envelopeId !== env.core.id || r.ctHash !== env.ctHash || r.ownerId !== trust.ownerId) {
+    throw new PolicyError('bad_release', 'owner approval does not match this message');
+  }
 }

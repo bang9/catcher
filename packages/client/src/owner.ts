@@ -168,6 +168,12 @@ export class OwnerClient {
   /** Approve a pending registration (after the person compared fingerprints) — signs the cert. */
   async approveAgent(agent: AgentSummary, days = CERT_DAYS): Promise<Signed<CertPayload>> {
     const now = Date.now();
+    // the cert carries today's revocation version, so the new agent can never be served an older list
+    const dir = await this.directory();
+    let revocationFloor = 0;
+    if (dir.revocations) {
+      revocationFloor = verifyStatement(dir.revocations, 'revocations', b64(this.identity.signPub)).version;
+    }
     const cert = signStatement(
       {
         kind: 'cert',
@@ -180,6 +186,7 @@ export class OwnerClient {
         provider: agent.provider,
         issuedAt: now,
         expiresAt: now + days * 86_400_000,
+        revocationFloor,
       },
       this.identity,
     );
@@ -244,7 +251,9 @@ export class OwnerClient {
   }
 
   /** Let one held envelope through — bound to its exact ciphertext. */
-  async release(item: Pick<OwnerItem, 'envelope'>): Promise<void> {
+  async release(item: Pick<OwnerItem, 'envelope' | 'verified'>): Promise<void> {
+    // never let through what the owner could not read and verify itself
+    if (!item.verified) throw new Error('cannot release a message that failed verification');
     const release = signStatement(
       {
         kind: 'release',

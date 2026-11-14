@@ -23,7 +23,7 @@ const authed =
 
 const routes: [string, RegExp, Handler][] = [
   ['GET', /^\/v1\/health$/, async () => json({ ok: true, service: 'catcher', protocol: 1 })],
-  ['POST', /^\/v1\/owners$/, async ({ env, body }) => h.createOwner(env, body)],
+  ['POST', /^\/v1\/owners$/, async ({ env, req, body }) => h.createOwner(env, req, body)],
   ['GET', /^\/v1\/owners\/lookup$/, async ({ env, url }) => h.lookupOwner(env, url)],
   ['POST', /^\/v1\/owner\/keys$/, authed(({ env, body, exec }, c) => h.appendOwnerKey(env, c, body, exec))],
   ['POST', /^\/v1\/owner\/push-tokens$/, authed(({ env, body }, c) => h.putPushToken(env, c, body))],

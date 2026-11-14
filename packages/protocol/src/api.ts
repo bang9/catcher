@@ -13,7 +13,8 @@ import type {
   Signed,
 } from './statements.ts';
 
-export const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** agent names; `owner` is reserved (see RESERVED_NAME) */
+export const NAME_PATTERN = /^(?!owner$)[a-z0-9][a-z0-9-]{0,31}$/;
 export const SCOPE_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
 
 export interface StoredEnvelope {
