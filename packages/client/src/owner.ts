@@ -47,6 +47,8 @@ export interface OwnerState {
   keySeq: number;
   /** last envelope seq the owner used */
   seq: number;
+  /** next key while a rotation is in flight — stored before the relay hears of it, so a crash never loses it */
+  pendingSeed?: string;
 }
 
 /** One envelope as the owner sees it: verified against the sender's owner-signed cert, then decrypted. */
@@ -81,12 +83,24 @@ export class OwnerClient {
   identity: Identity;
   api: Api;
   private save: (s: OwnerState) => void;
+  private fetchImpl: Fetch | undefined;
 
   constructor(state: OwnerState, opts: { fetch?: Fetch; save?: (s: OwnerState) => void } = {}) {
     this.state = state;
     this.identity = identityFromSeed(unb64(state.seed));
+    this.fetchImpl = opts.fetch;
     this.api = new Api({ server: state.server, callerId: state.ownerId, identity: this.identity, fetch: opts.fetch });
     this.save = opts.save ?? (() => {});
+  }
+
+  private useIdentity(next: Identity): void {
+    this.identity = next;
+    this.api = new Api({
+      server: this.state.server,
+      callerId: this.state.ownerId,
+      identity: next,
+      fetch: this.fetchImpl,
+    });
   }
 
   /** First launch: new owner key, registered with the relay. */
@@ -339,38 +353,86 @@ export class OwnerClient {
   /**
    * Rotate the owner key: the old key signs the new one, then every live cert and grant is re-signed and the
    * revocation list is re-issued with the new key. Returns the new recovery code.
+   * Crash-safe: the new seed is saved before the relay hears of it; `resumeRotation` finishes an interrupted one.
    */
   async rotateKey(): Promise<string> {
     const next = newIdentity();
-    const keys = publicKeys(next);
+    this.state.pendingSeed = b64(next.seed);
+    this.save(this.state);
     const link = signStatement(
-      { kind: 'owner-key', ownerId: this.state.ownerId, seq: this.state.keySeq + 1, ...keys, issuedAt: Date.now() },
+      {
+        kind: 'owner-key',
+        ownerId: this.state.ownerId,
+        seq: this.state.keySeq + 1,
+        ...publicKeys(next),
+        issuedAt: Date.now(),
+      },
       this.identity,
     );
-    // read everything that must be re-signed while the old key still authenticates
-    const oldPub = b64(this.identity.signPub);
-    const dir = await this.directory();
     await this.api.call('POST', '/v1/owner/keys', { link });
-    // switch to the new key for everything after the link
-    this.identity = next;
+    this.adopt(next);
+    await this.resignAll();
+    return recoveryCode(next.seed);
+  }
+
+  /** Call on start-up: finishes a rotation that was interrupted after the new seed was saved. */
+  async resumeRotation(): Promise<boolean> {
+    if (!this.state.pendingSeed) return false;
+    const next = identityFromSeed(unb64(this.state.pendingSeed));
+    const res = await this.api
+      .call<OwnerLookupResponse>(
+        'GET',
+        `/v1/owners/lookup?signPub=${encodeURIComponent(b64(next.signPub))}`,
+        undefined,
+        {
+          auth: false,
+        },
+      )
+      .catch(() => null);
+    if (!res || res.ownerId !== this.state.ownerId) {
+      // the relay never took the new key — keep the current one
+      delete this.state.pendingSeed;
+      this.save(this.state);
+      return false;
+    }
+    this.adopt(next);
+    await this.resignAll();
+    return true;
+  }
+
+  private adopt(next: Identity): void {
     this.state.seed = b64(next.seed);
     this.state.keySeq += 1;
-    this.api = new Api({ server: this.state.server, callerId: this.state.ownerId, identity: next });
+    delete this.state.pendingSeed;
+    this.useIdentity(next);
     this.save(this.state);
+  }
+
+  /** Re-sign whatever is still signed by an older owner key (idempotent — safe to run again after a failure). */
+  async resignAll(): Promise<void> {
+    const dir = await this.directory();
+    const keys = verifyOwnerChain(dir.ownerChain, this.state.ownerId);
+    const chainKeys = dir.ownerChain.map((l) => l.payload.signPub);
+    const current = b64(this.identity.signPub);
+    if (keys.signPub !== current) throw new Error('relay owner key does not match this phone');
+    const old = (signer: string) => signer !== current && chainKeys.includes(signer);
     for (const s of dir.certs) {
-      const c = verifyStatement(s, 'cert', oldPub);
-      await this.api.call('POST', '/v1/owner/certs', { cert: signStatement({ ...c, issuedAt: Date.now() }, next) });
+      if (!old(s.signer)) continue;
+      const c = verifyStatement(s, 'cert', s.signer);
+      await this.api.call('POST', '/v1/owner/certs', {
+        cert: signStatement({ ...c, issuedAt: Date.now() }, this.identity),
+      });
     }
     for (const s of dir.grants) {
-      const g = verifyStatement(s, 'grant', oldPub);
-      await this.api.call('POST', '/v1/owner/grants', { grant: signStatement(g, next) });
+      if (!old(s.signer)) continue;
+      const g = verifyStatement(s, 'grant', s.signer);
+      await this.api.call('POST', '/v1/owner/grants', { grant: signStatement(g, this.identity) });
     }
-    if (dir.revocations) {
-      const r = verifyStatement(dir.revocations, 'revocations', oldPub);
-      const revocations = signStatement({ ...r, version: r.version + 1, issuedAt: Date.now() }, next);
+    if (dir.revocations && old(dir.revocations.signer)) {
+      const r = verifyStatement(dir.revocations, 'revocations', dir.revocations.signer);
+      const revocations = signStatement({ ...r, version: r.version + 1, issuedAt: Date.now() }, this.identity);
       await this.api.call('POST', '/v1/owner/revocations', { revocations });
     }
-    return recoveryCode(next.seed);
   }
 
   async feed(after: number, limit = 200): Promise<FeedResponse> {
@@ -396,7 +458,6 @@ export class OwnerClient {
 
   openItems(rows: StoredEnvelope[], agents: AgentSummary[], ownerSignKeys: string[]): OwnerItem[] {
     const byId = new Map(agents.map((a) => [a.agentId, a]));
-    const ownerSign = b64(this.identity.signPub);
     const name = (id: string) => {
       if (id === this.state.ownerId) return 'owner';
       return byId.get(id)?.name ?? id;
@@ -407,7 +468,7 @@ export class OwnerClient {
       let verified = false;
       let problem: string | null = null;
       try {
-        let senderKey = ownerSign;
+        let senderKeys = ownerSignKeys;
         if (c.from !== this.state.ownerId) {
           const agent = byId.get(c.from);
           if (!agent?.cert) throw new Error('sender has no owner certificate');
@@ -415,9 +476,10 @@ export class OwnerClient {
           if (!ownerSignKeys.includes(agent.cert.signer)) throw new Error('certificate is not signed by the owner');
           const cert = verifyStatement(agent.cert, 'cert', agent.cert.signer);
           if (cert.agentId !== c.from) throw new Error('certificate is for another agent');
-          senderKey = cert.signPub;
+          senderKeys = [cert.signPub];
         }
-        verifyEnvelope(row.envelope, senderKey);
+        // the owner's own envelopes may be signed by any key of its chain (sent before a rotation)
+        verifyWithAny(row.envelope, senderKeys);
         body = openEnvelope(row.envelope, { id: this.state.ownerId, ...this.identity });
         verified = true;
       } catch (e) {
@@ -463,10 +525,33 @@ export function pendingForOwner(items: OwnerItem[], ownerId: string): OwnerItem[
   });
 }
 
-/** Sender seq gaps the owner should know about (dropped or withheld envelopes). */
-export function seqGaps(items: OwnerItem[], senderSeq: Record<string, number>): { sender: string; missing: number }[] {
+function verifyWithAny(envelope: Envelope, keys: string[]): void {
+  let last: unknown = new Error('no key to verify with');
+  for (const k of keys) {
+    try {
+      verifyEnvelope(envelope, k);
+      return;
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last;
+}
+
+/**
+ * Sender seq gaps the owner should know about (dropped or withheld envelopes). The owner's own seq is skipped (a send
+ * that failed after taking a number leaves a harmless hole), and `sinceCursor` limits the check to what this install
+ * synced live — older envelopes may already be deleted from the relay after delivery.
+ */
+export function seqGaps(
+  items: OwnerItem[],
+  senderSeq: Record<string, number>,
+  opts: { ownerId?: string; sinceCursor?: number } = {},
+): { sender: string; missing: number }[] {
   const seen = new Map<string, Set<number>>();
   for (const i of items) {
+    if (i.from === opts.ownerId) continue;
+    if (opts.sinceCursor !== undefined && i.cursor < opts.sinceCursor) continue;
     const set = seen.get(i.from) ?? new Set<number>();
     set.add(i.envelope.core.seq);
     seen.set(i.from, set);

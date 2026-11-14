@@ -24,3 +24,6 @@ GoogleService-Info.plist
 credentials.json
 .catcher/
 apps/server/wrangler.deploy.jsonc
+
+# rust build output
+target/
