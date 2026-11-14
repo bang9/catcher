@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pnpm -r --no-bail run build",
     "test": "pnpm -r --no-bail run test",
-    "typecheck": "pnpm -r --no-bail run typecheck",
+    "typecheck": "pnpm -r --no-bail run typecheck && tsc -p tests",
     "e2e": "pnpm --filter @bang9/catcher build && node --test --test-concurrency=1 tests/e2e/*.test.ts",
     "lint": "oxlint",
     "format": "oxfmt",
