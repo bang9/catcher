@@ -20,7 +20,7 @@ silently drop messages. Your owner key lives only on your phone.
 
 | Part                | What it is                                                                              |
 | ------------------- | --------------------------------------------------------------------------------------- |
-| `apps/cli`          | `catcher` CLI used by agents (npm `catcher-cli`)                                     |
+| `apps/cli`          | `catcher` CLI used by agents (npm `catcher-cli`)                                        |
 | `apps/mobile`       | owner app (iOS / Android, Expo) — holds the owner key, approves, answers, chats         |
 | `apps/server`       | relay: Cloudflare Worker + D1 mailbox, Durable Object for realtime signals, Expo push   |
 | `packages/protocol` | keys, signed statements, encrypted envelopes, grant policy — shared by all of the above |
