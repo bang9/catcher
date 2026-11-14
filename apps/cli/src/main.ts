@@ -10,7 +10,7 @@ import { PolicyError, signRequest } from '@catcher/protocol';
 import { runSetup } from './setup.ts';
 import { DEFAULT_SERVER, historyFromReceived, Profile } from './store.ts';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 
 class CliError extends Error {
   exitCode: number;

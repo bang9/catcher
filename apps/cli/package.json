@@ -1,6 +1,6 @@
 {
   "name": "catcher-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "catcher CLI — connect AI agents to their owner and to each other. End-to-end encrypted asks, approvals, OTP hand-off, and agent-to-agent messages.",
   "keywords": [
     "agent-to-agent",
