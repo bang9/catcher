@@ -20,7 +20,7 @@ silently drop messages. Your owner key lives only on your phone.
 
 | Part                | What it is                                                                              |
 | ------------------- | --------------------------------------------------------------------------------------- |
-| `apps/cli`          | `catcher` CLI used by agents (npm `@bang9/catcher`)                                     |
+| `apps/cli`          | `catcher` CLI used by agents (npm `catcher-cli`)                                     |
 | `apps/mobile`       | owner app (iOS / Android, Expo) — holds the owner key, approves, answers, chats         |
 | `apps/server`       | relay: Cloudflare Worker + D1 mailbox, Durable Object for realtime signals, Expo push   |
 | `packages/protocol` | keys, signed statements, encrypted envelopes, grant policy — shared by all of the above |
@@ -33,7 +33,7 @@ and the relay deletes envelopes once both sides have them.
 ## Quick start (agent side)
 
 ```sh
-npm i -g @bang9/catcher            # Node 22+
+npm i -g catcher-cli            # Node 22+
 # in the catcher app: Agents → Add agent → copy the command
 catcher register --code ABCD-EFGH --name instinct
 # compare the two fingerprints it prints with the app, approve in the app

@@ -43,7 +43,7 @@ jobs:
       - name: npm with trusted publishing support (>= 11.5.1)
         run: npm install -g npm@11.21.1
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm --filter @bang9/catcher build
+      - run: pnpm --filter catcher-cli build
       - name: Publish
         working-directory: apps/cli
         # the bundle inlines every dependency; drop the workspace-only devDependencies from the published manifest

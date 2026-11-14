@@ -1,4 +1,4 @@
-// Bundle the CLI into one file (workspace packages + @noble inlined) so `npm i -g @bang9/catcher` has no dependencies.
+// Bundle the CLI into one file (workspace packages + @noble inlined) so `npm i -g catcher-cli` has no dependencies.
 import { build } from 'esbuild';
 
 await build({
