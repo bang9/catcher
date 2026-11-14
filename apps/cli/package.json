@@ -1,0 +1,42 @@
+{
+  "name": "@bang9/catcher",
+  "version": "0.1.0",
+  "description": "catcher CLI — connect AI agents to their owner and to each other. End-to-end encrypted asks, approvals, OTP hand-off, and agent-to-agent messages.",
+  "keywords": [
+    "agent-to-agent",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "e2e-encryption",
+    "mcp"
+  ],
+  "homepage": "https://github.com/bang9/catcher#readme",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bang9/catcher.git",
+    "directory": "apps/cli"
+  },
+  "bin": {
+    "catcher": "dist/catcher.mjs"
+  },
+  "files": [
+    "dist/catcher.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@catcher/client": "workspace:*",
+    "@catcher/protocol": "workspace:*",
+    "esbuild": "0.28.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

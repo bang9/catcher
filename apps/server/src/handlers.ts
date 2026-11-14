@@ -1,0 +1,686 @@
+// API handlers. The relay is a thin mailbox: it authenticates callers, applies cheap SQL pre-filters (sender, recipient,
+// grant row, reply target), stores ciphertext, signals listeners and pushes the owner. Signature checks of envelopes,
+// certs and grants happen on the agents and the phone, which re-verify everything anyway.
+
+import {
+  type AckRequest,
+  type AgentSummary,
+  type AppendOwnerKeyRequest,
+  b32,
+  type CreateOwnerRequest,
+  type CreatePairingRequest,
+  type Envelope,
+  ENVELOPE_TYPES,
+  ID_PATTERN,
+  NAME_PATTERN,
+  OWNER_REQUEST_TYPES,
+  type PostCertRequest,
+  type PostEnvelopeRequest,
+  type PostGrantRequest,
+  type PostReleaseRequest,
+  type PostRevocationsRequest,
+  type PushTokenRequest,
+  randomBytes,
+  randomId,
+  type RegisterRequest,
+  requiredRecipients,
+  SCOPE_PATTERN,
+  verifyOwnerChain,
+  verifyStatement,
+} from '@catcher/protocol';
+import {
+  bad,
+  type Caller,
+  type Env,
+  HttpError,
+  json,
+  parseJson,
+  requireActiveAgentOrOwner,
+  requireOwner,
+} from './http.ts';
+import { signal } from './hub.ts';
+import { pushOwner } from './push.ts';
+import { type AgentRow, type EnvelopeRow, getOwner, loadDirectory, nameOf, parseOrNull, toStored } from './store.ts';
+
+const PAIRING_TTL_MS = 10 * 60 * 1000;
+const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
+const CLOCK_SKEW_MS = 10 * 60 * 1000;
+/** delivered envelopes stay this long after both sides have them (agent acked, owner app synced) */
+const DELIVERED_GRACE_MS = 24 * 60 * 60 * 1000;
+
+function ttlMs(env: Env): number {
+  return Number(env.ENVELOPE_TTL_DAYS || '30') * 86_400_000;
+}
+
+function later(ctx: ExecutionContext, p: Promise<unknown>): void {
+  ctx.waitUntil(p.catch((e) => console.warn('background task failed', e)));
+}
+
+function freshTime(t: number, now: number): void {
+  if (!Number.isSafeInteger(t) || Math.abs(now - t) > CLOCK_SKEW_MS) {
+    bad('statement time is too far from now (check the device clock)', 'stale');
+  }
+}
+
+function statementError(e: unknown): never {
+  if (e instanceof HttpError) throw e;
+  return bad((e as Error).message, 'bad_statement');
+}
+
+async function bumpDirectory(env: Env, ctx: ExecutionContext, ownerId: string): Promise<void> {
+  await env.DB.prepare('UPDATE owners SET dir_version = dir_version + 1 WHERE id = ?').bind(ownerId).run();
+  later(ctx, signal(env, ownerId, { to: '*', kind: 'directory' }));
+}
+
+// ─── owner ───────────────────────────────────────────────────────────────────
+
+/** Unauthenticated: the genesis key signs itself; the owner id is derived from it. */
+export async function createOwner(env: Env, body: Uint8Array): Promise<Response> {
+  const req = parseJson<CreateOwnerRequest>(body);
+  const first = req.chain?.[0];
+  if (!first || req.chain.length !== 1) bad('send exactly the genesis owner key');
+  const ownerId = first.payload.ownerId;
+  let keys: ReturnType<typeof verifyOwnerChain>;
+  try {
+    keys = verifyOwnerChain(req.chain, ownerId);
+  } catch (e) {
+    return bad((e as Error).message, 'bad_owner_key');
+  }
+  const now = Date.now();
+  freshTime(first.payload.issuedAt, now);
+  const existing = await env.DB.prepare('SELECT id FROM owners WHERE id = ?').bind(ownerId).first();
+  if (existing) return json({ ownerId, created: false });
+  await env.DB.prepare('INSERT INTO owners (id, sign_pub, box_pub, chain, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(ownerId, keys.signPub, keys.boxPub, JSON.stringify(req.chain), now)
+    .run();
+  return json({ ownerId, created: true }, 201);
+}
+
+/** Restore on a new phone: find the owner by its current signing key. */
+export async function lookupOwner(env: Env, url: URL): Promise<Response> {
+  const signPub = url.searchParams.get('signPub');
+  if (!signPub) bad('signPub is required');
+  const row = await env.DB.prepare('SELECT id, chain FROM owners WHERE sign_pub = ?')
+    .bind(signPub)
+    .first<{ id: string; chain: string }>();
+  if (!row) throw new HttpError(404, 'not_found', 'no owner uses this key');
+  return json({ ownerId: row.id, chain: JSON.parse(row.chain) });
+}
+
+/** Key rotation: the new link must be signed by the current key (the caller already proved it holds it). */
+export async function appendOwnerKey(
+  env: Env,
+  caller: Caller,
+  body: Uint8Array,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  requireOwner(caller);
+  const { link } = parseJson<AppendOwnerKeyRequest>(body);
+  const owner = await getOwner(env, caller.ownerId);
+  const chain = [...JSON.parse(owner.chain), link];
+  let keys: ReturnType<typeof verifyOwnerChain>;
+  try {
+    keys = verifyOwnerChain(chain, caller.ownerId);
+  } catch (e) {
+    return bad((e as Error).message, 'bad_owner_key');
+  }
+  await env.DB.prepare('UPDATE owners SET sign_pub = ?, box_pub = ?, chain = ? WHERE id = ?')
+    .bind(keys.signPub, keys.boxPub, JSON.stringify(chain), caller.ownerId)
+    .run();
+  await bumpDirectory(env, ctx, caller.ownerId);
+  return json({ ok: true, seq: keys.seq });
+}
+
+export async function putPushToken(env: Env, caller: Caller, body: Uint8Array): Promise<Response> {
+  requireOwner(caller);
+  const req = parseJson<PushTokenRequest>(body);
+  if (typeof req.token !== 'string' || !req.token || req.token.length > 300) bad('token is required');
+  if (!['ios', 'android', 'web'].includes(req.platform)) bad('platform must be ios, android or web');
+  await env.DB.prepare(
+    'INSERT INTO push_tokens (token, owner_id, platform, locale, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET owner_id = excluded.owner_id, platform = excluded.platform, locale = excluded.locale, updated_at = excluded.updated_at',
+  )
+    .bind(req.token, caller.ownerId, req.platform, String(req.locale || 'en').slice(0, 16), Date.now())
+    .run();
+  return json({ ok: true });
+}
+
+export async function deletePushToken(env: Env, caller: Caller, body: Uint8Array): Promise<Response> {
+  requireOwner(caller);
+  const { token } = parseJson<{ token: string }>(body);
+  await env.DB.prepare('DELETE FROM push_tokens WHERE token = ? AND owner_id = ?').bind(token, caller.ownerId).run();
+  return json({ ok: true });
+}
+
+export async function createPairing(env: Env, caller: Caller, body: Uint8Array): Promise<Response> {
+  requireOwner(caller);
+  const { statement } = parseJson<CreatePairingRequest>(body);
+  const owner = await getOwner(env, caller.ownerId);
+  try {
+    const p = verifyStatement(statement, 'pairing', owner.sign_pub);
+    if (p.ownerId !== caller.ownerId) bad('pairing is for another owner');
+    freshTime(p.issuedAt, Date.now());
+  } catch (e) {
+    statementError(e);
+  }
+  // 8 Crockford base32 characters (40 bits), single use, 10 minutes
+  const code = b32(randomBytes(5)).slice(0, 8);
+  const now = Date.now();
+  await env.DB.prepare('INSERT INTO pairings (code, owner_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
+    .bind(code, caller.ownerId, now + PAIRING_TTL_MS, now)
+    .run();
+  return json({ code, expiresAt: now + PAIRING_TTL_MS }, 201);
+}
+
+function agentSummary(r: AgentRow): AgentSummary {
+  return {
+    agentId: r.id,
+    name: r.name,
+    device: r.device,
+    provider: r.provider,
+    status: r.status as AgentSummary['status'],
+    signPub: r.sign_pub,
+    boxPub: r.box_pub,
+    createdAt: r.created_at,
+    lastSeenAt: r.last_seen_at,
+    cert: parseOrNull(r.cert),
+  };
+}
+
+export async function listAgents(env: Env, caller: Caller): Promise<Response> {
+  requireOwner(caller);
+  const { results } = await env.DB.prepare('SELECT * FROM agents WHERE owner_id = ? ORDER BY created_at')
+    .bind(caller.ownerId)
+    .all<AgentRow>();
+  const owner = await getOwner(env, caller.ownerId);
+  const senderSeq: Record<string, number> = { [caller.ownerId]: owner.last_seq };
+  for (const r of results) senderSeq[r.id] = r.last_seq;
+  return json({ agents: results.map(agentSummary), senderSeq });
+}
+
+export async function postCert(env: Env, caller: Caller, body: Uint8Array, ctx: ExecutionContext): Promise<Response> {
+  requireOwner(caller);
+  const { cert } = parseJson<PostCertRequest>(body);
+  const owner = await getOwner(env, caller.ownerId);
+  let c: ReturnType<typeof verifyStatement<'cert'>>;
+  try {
+    c = verifyStatement(cert, 'cert', owner.sign_pub);
+  } catch (e) {
+    return statementError(e);
+  }
+  const agent = await env.DB.prepare('SELECT * FROM agents WHERE id = ? AND owner_id = ?')
+    .bind(c.agentId, caller.ownerId)
+    .first<AgentRow>();
+  if (!agent) throw new HttpError(404, 'not_found', 'no such agent');
+  if (agent.sign_pub !== c.signPub || agent.box_pub !== c.boxPub || agent.name !== c.name) {
+    bad('cert does not match the registered agent keys', 'cert_mismatch');
+  }
+  if (agent.status !== 'pending' && agent.status !== 'active') bad(`agent is ${agent.status}`, 'agent_closed');
+  await env.DB.prepare("UPDATE agents SET status = 'active', cert = ? WHERE id = ?")
+    .bind(JSON.stringify(cert), c.agentId)
+    .run();
+  await bumpDirectory(env, ctx, caller.ownerId);
+  later(ctx, signal(env, caller.ownerId, { to: c.agentId, kind: 'registration' }));
+  return json({ ok: true });
+}
+
+export async function rejectAgent(env: Env, caller: Caller, agentId: string): Promise<Response> {
+  requireOwner(caller);
+  const r = await env.DB.prepare(
+    "UPDATE agents SET status = 'rejected' WHERE id = ? AND owner_id = ? AND status = 'pending'",
+  )
+    .bind(agentId, caller.ownerId)
+    .run();
+  if (!r.meta.changes) throw new HttpError(404, 'not_found', 'no pending agent with that id');
+  return json({ ok: true });
+}
+
+export async function postGrant(env: Env, caller: Caller, body: Uint8Array, ctx: ExecutionContext): Promise<Response> {
+  requireOwner(caller);
+  const { grant } = parseJson<PostGrantRequest>(body);
+  const owner = await getOwner(env, caller.ownerId);
+  let g: ReturnType<typeof verifyStatement<'grant'>>;
+  try {
+    g = verifyStatement(grant, 'grant', owner.sign_pub);
+  } catch (e) {
+    return statementError(e);
+  }
+  if (g.ownerId !== caller.ownerId || !ID_PATTERN.grant.test(g.grantId)) bad('bad grant id or owner');
+  if (!g.scopes.length || !g.scopes.every((s) => SCOPE_PATTERN.test(s))) bad('scopes must match [a-z0-9._:-]');
+  const parties = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM agents WHERE owner_id = ? AND status = 'active' AND id IN (?, ?)",
+  )
+    .bind(caller.ownerId, g.from, g.to)
+    .first<{ n: number }>();
+  if (g.from === g.to || parties?.n !== 2) bad('both agents must be active and different');
+  let requireApproval = 0;
+  if (g.requireApproval) requireApproval = 1;
+  await env.DB.prepare(
+    'INSERT INTO grants (id, owner_id, from_id, to_id, statement, scopes, require_approval, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET statement = excluded.statement, scopes = excluded.scopes, require_approval = excluded.require_approval, expires_at = excluded.expires_at',
+  )
+    .bind(
+      g.grantId,
+      caller.ownerId,
+      g.from,
+      g.to,
+      JSON.stringify(grant),
+      JSON.stringify(g.scopes),
+      requireApproval,
+      g.expiresAt,
+      Date.now(),
+    )
+    .run();
+  await bumpDirectory(env, ctx, caller.ownerId);
+  return json({ ok: true });
+}
+
+export async function postRevocations(
+  env: Env,
+  caller: Caller,
+  body: Uint8Array,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  requireOwner(caller);
+  const { revocations } = parseJson<PostRevocationsRequest>(body);
+  const owner = await getOwner(env, caller.ownerId);
+  let r: ReturnType<typeof verifyStatement<'revocations'>>;
+  try {
+    r = verifyStatement(revocations, 'revocations', owner.sign_pub);
+  } catch (e) {
+    return statementError(e);
+  }
+  if (r.ownerId !== caller.ownerId) bad('revocations for another owner');
+  if (r.version <= owner.revocation_version) bad(`version must be above ${owner.revocation_version}`, 'stale_version');
+  const stmts = [
+    env.DB.prepare(
+      'UPDATE owners SET revocations = ?, revocation_version = ?, dir_version = dir_version + 1 WHERE id = ?',
+    ).bind(JSON.stringify(revocations), r.version, caller.ownerId),
+  ];
+  for (const a of r.agents) {
+    stmts.push(
+      env.DB.prepare("UPDATE agents SET status = 'revoked' WHERE id = ? AND owner_id = ?").bind(a, caller.ownerId),
+    );
+  }
+  for (const g of r.grants) {
+    stmts.push(env.DB.prepare('UPDATE grants SET revoked = 1 WHERE id = ? AND owner_id = ?').bind(g, caller.ownerId));
+  }
+  await env.DB.batch(stmts);
+  later(ctx, signal(env, caller.ownerId, { to: '*', kind: 'directory' }));
+  return json({ ok: true, version: r.version });
+}
+
+export async function postRelease(
+  env: Env,
+  caller: Caller,
+  body: Uint8Array,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  requireOwner(caller);
+  const { release } = parseJson<PostReleaseRequest>(body);
+  const owner = await getOwner(env, caller.ownerId);
+  let r: ReturnType<typeof verifyStatement<'release'>>;
+  try {
+    r = verifyStatement(release, 'release', owner.sign_pub);
+  } catch (e) {
+    return statementError(e);
+  }
+  const row = await env.DB.prepare(
+    'SELECT cursor, to_id, envelope FROM envelopes WHERE id = ? AND owner_id = ? AND held = 1',
+  )
+    .bind(r.envelopeId, caller.ownerId)
+    .first<{ cursor: number; to_id: string; envelope: string }>();
+  if (!row) throw new HttpError(404, 'not_found', 'no held message with that id');
+  if ((JSON.parse(row.envelope) as Envelope).ctHash !== r.ctHash)
+    bad('release does not match the message', 'release_mismatch');
+  await env.DB.prepare('UPDATE envelopes SET held = 0, release = ? WHERE id = ?')
+    .bind(JSON.stringify(release), r.envelopeId)
+    .run();
+  later(ctx, signal(env, caller.ownerId, { to: row.to_id, kind: 'envelope', cursor: row.cursor, id: r.envelopeId }));
+  return json({ ok: true });
+}
+
+/** Owner discards a held message instead of releasing it. */
+export async function dropHeld(env: Env, caller: Caller, envelopeId: string): Promise<Response> {
+  requireOwner(caller);
+  const r = await env.DB.prepare('UPDATE envelopes SET held = 2 WHERE id = ? AND owner_id = ? AND held = 1')
+    .bind(envelopeId, caller.ownerId)
+    .run();
+  if (!r.meta.changes) throw new HttpError(404, 'not_found', 'no held message with that id');
+  return json({ ok: true });
+}
+
+/** Owner timeline sync. `after` doubles as the owner's ack: everything at or below it is on the phone. */
+export async function ownerFeed(env: Env, caller: Caller, url: URL, ctx: ExecutionContext): Promise<Response> {
+  requireOwner(caller);
+  const after = Number(url.searchParams.get('after') ?? '0') || 0;
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? '200') || 200, 500);
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM envelopes WHERE owner_id = ? AND cursor > ? ORDER BY cursor LIMIT ?',
+  )
+    .bind(caller.ownerId, after, limit)
+    .all<EnvelopeRow>();
+  const envelopes = results.map(toStored);
+  if (after > 0) {
+    later(
+      ctx,
+      env.DB.prepare('UPDATE owners SET feed_cursor = ? WHERE id = ? AND feed_cursor < ?')
+        .bind(after, caller.ownerId, after)
+        .run(),
+    );
+  }
+  return json({ envelopes, cursor: envelopes.at(-1)?.cursor ?? after });
+}
+
+/** Held state changes after the fact (release / drop) — the app re-reads these by id. */
+export async function envelopeStates(env: Env, caller: Caller, url: URL): Promise<Response> {
+  requireOwner(caller);
+  const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).slice(0, 100);
+  if (!ids.length) return json({ envelopes: [] });
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM envelopes WHERE owner_id = ? AND id IN (${ids.map(() => '?').join(',')})`,
+  )
+    .bind(caller.ownerId, ...ids)
+    .all<EnvelopeRow>();
+  return json({ envelopes: results.map(toStored) });
+}
+
+// ─── agent ───────────────────────────────────────────────────────────────────
+
+export async function register(env: Env, req: Request, body: Uint8Array, ctx: ExecutionContext): Promise<Response> {
+  if (env.REGISTER_LIMIT) {
+    const ip = req.headers.get('cf-connecting-ip') ?? 'local';
+    const { success } = await env.REGISTER_LIMIT.limit({ key: `register:${ip}` });
+    if (!success) throw new HttpError(429, 'rate_limited', 'too many registration attempts; wait a minute');
+  }
+  const { statement } = parseJson<RegisterRequest>(body);
+  const p = statement?.payload;
+  if (p?.kind !== 'register') bad('expected a register statement');
+  try {
+    verifyStatement(statement, 'register', p.signPub);
+  } catch (e) {
+    return statementError(e);
+  }
+  const now = Date.now();
+  freshTime(p.issuedAt, now);
+  if (!NAME_PATTERN.test(p.name)) bad('name must be lowercase letters, digits and dashes (max 32)', 'bad_name');
+  const device = String(p.device).slice(0, 80);
+  const provider = String(p.provider).slice(0, 40);
+  const code = String(p.code).toUpperCase().replace(/[\s-]/g, '');
+  const pairing = await env.DB.prepare('SELECT * FROM pairings WHERE code = ?').bind(code).first<{
+    code: string;
+    owner_id: string;
+    expires_at: number;
+    used_at: number | null;
+  }>();
+  if (!pairing || pairing.used_at || pairing.expires_at < now) {
+    throw new HttpError(404, 'bad_code', 'pairing code is wrong, used, or expired — make a new one in the catcher app');
+  }
+  const taken = await env.DB.prepare(
+    "SELECT id FROM agents WHERE owner_id = ? AND name = ? AND status IN ('pending', 'active')",
+  )
+    .bind(pairing.owner_id, p.name)
+    .first();
+  if (taken) throw new HttpError(409, 'name_taken', `an agent named ${p.name} already exists`);
+  const dupKey = await env.DB.prepare('SELECT id FROM agents WHERE sign_pub = ?').bind(p.signPub).first();
+  if (dupKey) throw new HttpError(409, 'key_taken', 'this key is already registered');
+  const used = await env.DB.prepare('UPDATE pairings SET used_at = ? WHERE code = ? AND used_at IS NULL')
+    .bind(now, code)
+    .run();
+  if (!used.meta.changes) throw new HttpError(404, 'bad_code', 'pairing code was just used');
+  const agentId = randomId('a');
+  await env.DB.prepare(
+    "INSERT INTO agents (id, owner_id, name, sign_pub, box_pub, device, provider, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+  )
+    .bind(agentId, pairing.owner_id, p.name, p.signPub, p.boxPub, device, provider, now)
+    .run();
+  const owner = await getOwner(env, pairing.owner_id);
+  later(ctx, pushOwner(env, pairing.owner_id, { kind: 'registration', agentName: p.name, provider, device }));
+  later(ctx, signal(env, pairing.owner_id, { to: pairing.owner_id, kind: 'registration', id: agentId }));
+  return json({ agentId, ownerId: pairing.owner_id, ownerChain: JSON.parse(owner.chain) }, 201);
+}
+
+export async function me(env: Env, caller: Caller): Promise<Response> {
+  if (caller.kind !== 'agent') throw new HttpError(403, 'agent_only', 'only agents have /me');
+  const row = await env.DB.prepare('SELECT * FROM agents WHERE id = ?').bind(caller.id).first<AgentRow>();
+  if (!row) throw new HttpError(404, 'not_found', 'agent missing');
+  return json({
+    agentId: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    status: row.status,
+    cert: parseOrNull(row.cert),
+    lastSeq: row.last_seq,
+  });
+}
+
+/** `?known=<version>` returns {unchanged: true} when the agent's cached directory is current. */
+export async function directory(env: Env, caller: Caller, url: URL): Promise<Response> {
+  requireActiveAgentOrOwner(caller);
+  const known = Number(url.searchParams.get('known') ?? '0');
+  const v = await env.DB.prepare('SELECT dir_version FROM owners WHERE id = ?')
+    .bind(caller.ownerId)
+    .first<{ dir_version: number }>();
+  if (known && v && known === v.dir_version) return json({ unchanged: true, version: v.dir_version });
+  let forAgent: string | undefined;
+  if (caller.kind === 'agent') forAgent = caller.id;
+  return json({ ...(await loadDirectory(env, caller.ownerId, forAgent)), version: v?.dir_version ?? 0 });
+}
+
+async function touch(env: Env, caller: Caller, now: number): Promise<void> {
+  if (caller.kind !== 'agent') return;
+  await env.DB.prepare('UPDATE agents SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)')
+    .bind(now, caller.id, now - LAST_SEEN_THROTTLE_MS)
+    .run();
+}
+
+/** The heartbeat. One indexed read when empty; dirVersion tells the agent whether its cached directory is stale. */
+export async function inbox(env: Env, caller: Caller, url: URL, ctx: ExecutionContext): Promise<Response> {
+  requireActiveAgentOrOwner(caller);
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? '50') || 50, 200);
+  const [rows, version] = await env.DB.batch([
+    env.DB.prepare(
+      'SELECT * FROM envelopes WHERE to_id = ? AND acked_at IS NULL AND held = 0 ORDER BY cursor LIMIT ?',
+    ).bind(caller.id, limit),
+    env.DB.prepare('SELECT dir_version FROM owners WHERE id = ?').bind(caller.ownerId),
+  ]);
+  later(ctx, touch(env, caller, Date.now()));
+  const results = (rows?.results ?? []) as EnvelopeRow[];
+  const dirVersion = (version?.results?.[0] as { dir_version?: number } | undefined)?.dir_version ?? 0;
+  return json({ envelopes: results.map(toStored), dirVersion });
+}
+
+export async function ack(env: Env, caller: Caller, body: Uint8Array): Promise<Response> {
+  requireActiveAgentOrOwner(caller);
+  const { ids } = parseJson<AckRequest>(body);
+  if (!Array.isArray(ids) || ids.length > 200) bad('ids must be a list of at most 200 envelope ids');
+  const now = Date.now();
+  let acked = 0;
+  for (let i = 0; i < ids.length; i += 50) {
+    const part = ids.slice(i, i + 50);
+    const r = await env.DB.prepare(
+      `UPDATE envelopes SET acked_at = ? WHERE to_id = ? AND acked_at IS NULL AND id IN (${part.map(() => '?').join(',')})`,
+    )
+      .bind(now, caller.id, ...part)
+      .run();
+    acked += r.meta.changes ?? 0;
+  }
+  return json({ acked });
+}
+
+/** Answers/replies to one of the caller's messages that are still in the mailbox. */
+export async function replies(env: Env, caller: Caller, url: URL): Promise<Response> {
+  requireActiveAgentOrOwner(caller);
+  const ref = url.searchParams.get('ref');
+  if (!ref) bad('ref is required');
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM envelopes WHERE ref = ? AND to_id = ? AND held = 0 ORDER BY cursor',
+  )
+    .bind(ref, caller.id)
+    .all<EnvelopeRow>();
+  return json({ envelopes: results.map(toStored) });
+}
+
+// ─── envelopes (owner and agents) ────────────────────────────────────────────
+
+function structural(envelope: Envelope): void {
+  const c = envelope?.core;
+  if (!c || c.v !== 1) bad('envelope missing or unsupported version');
+  if (!ENVELOPE_TYPES.includes(c.type)) bad('unknown envelope type');
+  if (!ID_PATTERN.envelope.test(c.id)) bad('envelope id must look like m_ + 26 base32 characters');
+  if (!Number.isSafeInteger(c.seq) || c.seq < 1) bad('seq must be a positive integer');
+  if (c.scope !== null && !SCOPE_PATTERN.test(c.scope)) bad('bad scope');
+  if (c.from === c.to) bad('cannot send to yourself');
+  if ((c.type === 'reply' || c.type === 'answer') && !c.ref) bad(`${c.type} needs ref`);
+  if (c.type === 'answer' && c.from !== c.ownerId) bad('only the owner can answer');
+  if (OWNER_REQUEST_TYPES.includes(c.type) && c.to !== c.ownerId) bad(`${c.type} goes to the owner only`);
+  const need = requiredRecipients(c);
+  const ids = (envelope.wraps ?? []).map((w) => w.to);
+  if (ids.length !== need.length || !need.every((id) => ids.includes(id))) {
+    bad('envelope must be readable by exactly the recipient, the owner and the sender', 'bad_recipients');
+  }
+  if (typeof envelope.ct !== 'string' || envelope.ct.length > 120_000)
+    throw new HttpError(413, 'too_large', 'message is too large');
+}
+
+export async function postEnvelope(
+  env: Env,
+  caller: Caller,
+  body: Uint8Array,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  requireActiveAgentOrOwner(caller);
+  const { envelope } = parseJson<PostEnvelopeRequest>(body);
+  structural(envelope);
+  const c = envelope.core;
+  if (c.from !== caller.id) throw new HttpError(403, 'not_sender', 'you can only send as yourself');
+  if (c.ownerId !== caller.ownerId) throw new HttpError(403, 'owner_mismatch', 'envelope is for another owner');
+  const now = Date.now();
+  if (Math.abs(now - c.createdAt) > CLOCK_SKEW_MS)
+    bad('message time is too far from now (check the device clock)', 'stale');
+
+  // idempotent retry: same id from the same sender returns the stored row
+  const existing = await env.DB.prepare('SELECT cursor, from_id, held FROM envelopes WHERE id = ?').bind(c.id).first<{
+    cursor: number;
+    from_id: string;
+    held: number;
+  }>();
+  if (existing) {
+    if (existing.from_id !== caller.id) throw new HttpError(409, 'id_taken', 'envelope id already used');
+    return json({ cursor: existing.cursor, held: existing.held === 1, duplicate: true });
+  }
+
+  let seqTable = 'agents';
+  if (caller.kind === 'owner') seqTable = 'owners';
+  const last = await env.DB.prepare(`SELECT last_seq FROM ${seqTable} WHERE id = ?`)
+    .bind(caller.id)
+    .first<{ last_seq: number }>();
+  const lastSeq = last?.last_seq ?? 0;
+  if (c.seq <= lastSeq) throw new HttpError(409, 'stale_seq', `seq must be above ${lastSeq}`);
+
+  if (c.to !== caller.ownerId) {
+    const target = await env.DB.prepare("SELECT id FROM agents WHERE id = ? AND owner_id = ? AND status = 'active'")
+      .bind(c.to, caller.ownerId)
+      .first();
+    if (!target) throw new HttpError(404, 'unknown_party', 'recipient is not an active agent');
+  }
+
+  let held = 0;
+  const agentToAgent = c.from !== caller.ownerId && c.to !== caller.ownerId;
+  if (c.from === caller.ownerId && !['message', 'answer'].includes(c.type)) bad(`owner does not send ${c.type}`);
+  if (agentToAgent && c.type === 'message') {
+    if (!c.grantId || !c.scope) throw new HttpError(403, 'no_grant', 'agent messages need a scope and a grant');
+    const g = await env.DB.prepare(
+      'SELECT scopes, require_approval FROM grants WHERE id = ? AND from_id = ? AND to_id = ? AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?)',
+    )
+      .bind(c.grantId, c.from, c.to, now)
+      .first<{ scopes: string; require_approval: number }>();
+    if (!g || !(JSON.parse(g.scopes) as string[]).includes(c.scope)) {
+      throw new HttpError(403, 'no_grant', `no live grant lets ${c.from} send ${c.scope} to ${c.to}`);
+    }
+    held = g.require_approval;
+  } else if (agentToAgent && c.type !== 'reply') {
+    throw new HttpError(403, 'bad_type', `agents do not send ${c.type} to each other`);
+  }
+
+  // replies and answers must point at a message that went the other way
+  if (c.type === 'reply' || c.type === 'answer') {
+    const ref = await env.DB.prepare('SELECT from_id, to_id FROM envelopes WHERE id = ? AND owner_id = ?')
+      .bind(c.ref, caller.ownerId)
+      .first<{ from_id: string; to_id: string }>();
+    if (!ref || ref.from_id !== c.to || ref.to_id !== c.from) {
+      throw new HttpError(403, 'bad_ref', `${c.type} must answer a message ${c.to} sent to ${c.from}`);
+    }
+    if (c.type === 'answer') {
+      const dup = await env.DB.prepare("SELECT id FROM envelopes WHERE ref = ? AND type = 'answer'")
+        .bind(c.ref)
+        .first();
+      if (dup) throw new HttpError(409, 'already_answered', 'this request already has an answer');
+    }
+  }
+
+  const stmts = [
+    env.DB.prepare(
+      'INSERT INTO envelopes (id, owner_id, from_id, to_id, type, ref, envelope, held, received_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(c.id, caller.ownerId, c.from, c.to, c.type, c.ref, JSON.stringify(envelope), held, now, now + ttlMs(env)),
+    env.DB.prepare(`UPDATE ${seqTable} SET last_seq = ? WHERE id = ? AND last_seq < ?`).bind(c.seq, caller.id, c.seq),
+  ];
+  // the owner's copy of a request is settled once answered
+  if (c.type === 'answer') {
+    stmts.push(env.DB.prepare('UPDATE envelopes SET acked_at = ? WHERE id = ? AND acked_at IS NULL').bind(now, c.ref));
+  }
+  const [ins] = await env.DB.batch(stmts);
+  const cursor = Number(ins?.meta.last_row_id ?? 0);
+  if (caller.kind === 'agent') later(ctx, touch(env, caller, now));
+
+  if (held) {
+    later(
+      ctx,
+      (async () =>
+        pushOwner(env, caller.ownerId, {
+          kind: 'held',
+          fromName: await nameOf(env, c.from, caller.ownerId),
+          toName: await nameOf(env, c.to, caller.ownerId),
+          envelopeId: c.id,
+        }))(),
+    );
+    later(ctx, signal(env, caller.ownerId, { to: caller.ownerId, kind: 'envelope', cursor, id: c.id }));
+  } else {
+    later(ctx, signal(env, caller.ownerId, { to: c.to, kind: 'envelope', cursor, id: c.id }));
+    if (c.to === caller.ownerId) {
+      later(
+        ctx,
+        (async () =>
+          pushOwner(env, caller.ownerId, {
+            kind: 'envelope',
+            type: c.type,
+            fromName: await nameOf(env, c.from, caller.ownerId),
+            envelopeId: c.id,
+          }))(),
+      );
+    }
+  }
+  return json({ cursor, held: held === 1, duplicate: false }, 201);
+}
+
+// ─── housekeeping ────────────────────────────────────────────────────────────
+
+/**
+ * Hourly. The relay keeps nothing it does not need: an envelope goes once the recipient acked it and the owner app
+ * synced past it (plus a day of grace for retries), or after the hard TTL if nobody ever picked it up.
+ */
+export async function cleanup(env: Env): Promise<void> {
+  const now = Date.now();
+  await env.DB.batch([
+    // delivered to an agent (acked) or plain chat to the owner, and already synced to the owner's phone
+    env.DB.prepare(
+      `DELETE FROM envelopes WHERE received_at < ?
+         AND (acked_at IS NOT NULL OR (to_id = owner_id AND type IN ('message', 'reply')))
+         AND cursor <= (SELECT feed_cursor FROM owners WHERE owners.id = envelopes.owner_id)`,
+    ).bind(now - DELIVERED_GRACE_MS),
+    env.DB.prepare('DELETE FROM envelopes WHERE held = 2 AND received_at < ?').bind(now - DELIVERED_GRACE_MS),
+    env.DB.prepare('DELETE FROM envelopes WHERE expires_at < ?').bind(now),
+    env.DB.prepare('DELETE FROM pairings WHERE expires_at < ?').bind(now - 86_400_000),
+    env.DB.prepare("DELETE FROM agents WHERE status IN ('pending', 'rejected') AND created_at < ?").bind(
+      now - 7 * 86_400_000,
+    ),
+  ]);
+}

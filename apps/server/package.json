@@ -1,0 +1,20 @@
+{
+  "name": "@catcher/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "catcher relay — Cloudflare Worker + D1. Stores ciphertext and owner-signed statements, enforces grants as a pre-filter, sends push to the owner",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "deploy:dry": "wrangler deploy --dry-run --outdir dist"
+  },
+  "dependencies": {
+    "@catcher/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261029.1",
+    "wrangler": "4.156.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "no-ternary": "error",
+    "no-nested-ternary": "error",
+    "unicorn/no-array-sort": "off"
+  },
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/.wrangler/**", "**/.expo/**"]
+}

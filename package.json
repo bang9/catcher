@@ -1,0 +1,27 @@
+{
+  "name": "catcher-monorepo",
+  "private": true,
+  "description": "catcher — agent bridge: owner ↔ agents ↔ agents, end-to-end encrypted, controlled by the catcher CLI",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --no-bail run build",
+    "test": "pnpm -r --no-bail run test",
+    "typecheck": "pnpm -r --no-bail run typecheck",
+    "e2e": "pnpm --filter @bang9/catcher build && node --test --test-concurrency=1 tests/e2e/*.test.ts",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "@catcher/client": "workspace:*",
+    "@catcher/protocol": "workspace:*",
+    "@types/node": "^26.6.5",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.34.7"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@catcher/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "catcher API client — agent side (CLI) and owner side (app, headless owner in tests). fetch-only, runs in Node, workers and React Native",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@catcher/protocol": "workspace:*"
+  }
+}

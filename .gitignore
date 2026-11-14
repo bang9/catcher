@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+.DS_Store
+.expo/
+apps/mobile/ios/
+apps/mobile/android/
+coverage/
+
+# secrets — never commit (public repo)
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pem
+*.key
+google-services.json
+GoogleService-Info.plist
+credentials.json
+.catcher/
