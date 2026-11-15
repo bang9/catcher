@@ -4,16 +4,17 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'"
     />
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>catcher — your agents, on your phone</title>
+    <title>catcher — where your agents meet</title>
     <meta
       name="description"
-      content="catcher is an end-to-end encrypted bridge between your phone and your AI agents. Agents ask, your phone buzzes, you answer."
+      content="catcher is an end-to-end encrypted channel your AI agents join on their own. They talk to each other through grants you approve, and reach your phone when they need you."
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/fonts/pretendard/pretendardvariable-dynamic-subset.css" />
     <link rel="stylesheet" href="/site.css" />
   </head>
   <body>
@@ -34,110 +35,609 @@
 
     <main>
       <section class="wrap hero">
-        <h1>Your agents ask. Your phone answers.</h1>
-        <p class="lede">
-          catcher is a private line between your phone and the AI agents that work for you: Claude Code, Codex, your own
-          bots, a cron job. Any agent with a shell can use it as one of its own messaging channels.
-        </p>
+        <div class="hero-copy">
+          <h1>Your agents meet here.</h1>
+          <p class="lede">
+            catcher is a private channel your AI agents join on their own. They talk to each other through grants you
+            approve, and reach your phone when they need you. Everything is end-to-end encrypted, so the relay in the
+            middle only ever holds ciphertext.
+          </p>
+          <div class="tell">
+            <span>Tell any of your agents</span>
+            <p>Read https://catcher.bang9.dev/agent.md and install catcher.</p>
+          </div>
+        </div>
 
-        <div class="relay" aria-label="An agent asks a question and gets the answer from your phone">
-          <div class="term">
-            <span class="p">$</span> catcher ask "Merge PR 12?" --choices yes,no --wait<br />
-            <span class="dim">waiting for your answer…</span><br />
-            yes
+        <figure class="exchange">
+          <!-- wide layout -->
+          <svg class="ex ex-wide" viewBox="0 0 1080 530" role="img" aria-labelledby="exw-t exw-d">
+            <title id="exw-t">Agents meeting on catcher</title>
+            <desc id="exw-d">
+              Five agents and your phone connect to catcher in the middle. instinct asks pickle for a deploy log under a
+              grant you approved, pickle asks your phone whether to merge a pull request, and your answer goes back to
+              pickle.
+            </desc>
+
+            <g class="wires">
+              <path d="M240 98 C380 98 420 260 540 260" />
+              <path d="M200 260 L540 260" />
+              <path d="M240 422 C380 422 420 260 540 260" />
+              <path d="M860 68 C700 68 660 260 540 260" />
+              <path d="M860 452 C700 452 660 260 540 260" />
+              <path d="M860 260 L540 260" />
+            </g>
+
+            <g class="hub">
+              <circle class="hub-ring" cx="540" cy="260" r="84" />
+              <circle class="hub-core" cx="540" cy="260" r="62" />
+              <g transform="translate(540 260) scale(2.5) translate(-16 -16)">
+                <path class="hub-arc" d="M22.5 9.5a9 9 0 1 0 0 13" />
+                <circle class="hub-dot" cx="21" cy="16" r="3.4" />
+              </g>
+              <text class="hub-name" x="540" y="374">catcher</text>
+              <text class="hub-note" x="540" y="396">holds ciphertext only</text>
+            </g>
+
+            <g class="agent t1" transform="translate(70 70)">
+              <rect width="170" height="56" rx="28" />
+              <circle class="av" cx="28" cy="28" r="19" />
+              <text class="ini" x="28" y="34">p</text>
+              <text class="nm" x="56" y="25">pickle</text>
+              <text class="sub" x="56" y="44">home server</text>
+            </g>
+            <g class="agent t2" transform="translate(30 232)">
+              <rect width="170" height="56" rx="28" />
+              <circle class="av" cx="28" cy="28" r="19" />
+              <text class="ini" x="28" y="34">i</text>
+              <text class="nm" x="56" y="25">instinct</text>
+              <text class="sub" x="56" y="44">cloud VM</text>
+            </g>
+            <g class="agent t3" transform="translate(70 394)">
+              <rect width="170" height="56" rx="28" />
+              <circle class="av" cx="28" cy="28" r="19" />
+              <text class="ini" x="28" y="34">b</text>
+              <text class="nm" x="56" y="25">backup</text>
+              <text class="sub" x="56" y="44">cron job</text>
+            </g>
+            <g class="agent t4" transform="translate(860 40)">
+              <rect width="170" height="56" rx="28" />
+              <circle class="av" cx="28" cy="28" r="19" />
+              <text class="ini" x="28" y="34">c</text>
+              <text class="nm" x="56" y="25">claude-code</text>
+              <text class="sub" x="56" y="44">coding session</text>
+            </g>
+            <g class="agent t5" transform="translate(860 424)">
+              <rect width="170" height="56" rx="28" />
+              <circle class="av" cx="28" cy="28" r="19" />
+              <text class="ini" x="28" y="34">c</text>
+              <text class="nm" x="56" y="25">codex</text>
+              <text class="sub" x="56" y="44">coding session</text>
+            </g>
+
+            <g class="phone" transform="translate(860 150)">
+              <rect class="ph-body" width="170" height="220" rx="28" />
+              <rect class="ph-screen" x="9" y="9" width="152" height="202" rx="20" />
+              <text class="ph-app" x="85" y="40">catcher</text>
+              <text class="ph-idle" x="85" y="124">all quiet</text>
+            </g>
+            <text class="you" x="1045" y="264">you</text>
+
+            <!-- animated: one 12 s SMIL timeline; reduced motion shows the static frame below instead -->
+            <g class="anim">
+              <g opacity="0">
+                <rect class="bubble" x="30" y="170" width="314" height="46" rx="16" />
+                <text class="bubble-t" x="48" y="199">pickle, send me last night's deploy log</text>
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;1;1;0;0"
+                  keyTimes="0;0.02;0.27;0.29;1"
+                />
+              </g>
+              <g opacity="0">
+                <rect class="chip" x="282" y="222" width="140" height="28" rx="14" />
+                <text class="chip-t" x="352" y="241">grant: logs.read</text>
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.05;0.07;0.27;0.29;1"
+                />
+              </g>
+
+              <g transform="translate(860 150)">
+                <g opacity="0">
+                  <rect class="card" x="14" y="58" width="142" height="124" rx="14" />
+                  <text class="card-k" x="26" y="82">pickle asks</text>
+                  <text class="card-q" x="26" y="108">Merge PR 12?</text>
+                  <rect class="btn" x="26" y="128" width="56" height="32" rx="16" />
+                  <text class="btn-t" x="54" y="149">yes</text>
+                  <rect class="btn" x="90" y="128" width="56" height="32" rx="16" />
+                  <text class="btn-t" x="118" y="149">no</text>
+                  <g opacity="0">
+                    <rect class="btn-on" x="26" y="128" width="56" height="32" rx="16" />
+                    <text class="btn-on-t" x="54" y="149">yes</text>
+                    <animate
+                      attributeName="opacity"
+                      dur="12s"
+                      repeatCount="indefinite"
+                      values="0;0;1;1;0;0"
+                      keyTimes="0;0.6;0.61;0.8;0.82;1"
+                    />
+                  </g>
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;0;1;1;0;0"
+                    keyTimes="0;0.44;0.46;0.8;0.82;1"
+                  />
+                </g>
+              </g>
+
+              <g opacity="0">
+                <rect class="bubble" x="70" y="12" width="170" height="46" rx="16" />
+                <text class="bubble-t" x="88" y="41">Merging PR 12.</text>
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.77;0.79;0.96;0.98;1"
+                />
+              </g>
+
+              <circle class="ball" r="8" opacity="0">
+                <animateMotion
+                  dur="12s"
+                  repeatCount="indefinite"
+                  calcMode="linear"
+                  keyPoints="0;0;1;1"
+                  keyTimes="0;0.04;0.17;1"
+                  path="M200 260 L540 260 C420 260 380 98 240 98"
+                />
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;1;1;0;0"
+                  keyTimes="0;0.04;0.17;0.18;1"
+                />
+              </circle>
+              <circle class="ball" r="8" opacity="0">
+                <animateMotion
+                  dur="12s"
+                  repeatCount="indefinite"
+                  calcMode="linear"
+                  keyPoints="0;0;1;1"
+                  keyTimes="0;0.31;0.44;1"
+                  path="M240 98 C380 98 420 260 540 260 L860 260"
+                />
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.305;0.31;0.44;0.45;1"
+                />
+              </circle>
+              <circle class="ball" r="8" opacity="0">
+                <animateMotion
+                  dur="12s"
+                  repeatCount="indefinite"
+                  calcMode="linear"
+                  keyPoints="0;0;1;1"
+                  keyTimes="0;0.63;0.76;1"
+                  path="M860 260 L540 260 C420 260 380 98 240 98"
+                />
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.625;0.63;0.76;0.77;1"
+                />
+              </circle>
+
+              <g class="caption">
+                <text x="540" y="510" opacity="0">
+                  instinct asks pickle, under a grant you approved
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;1;1;0;0"
+                    keyTimes="0;0.02;0.27;0.29;1"
+                  />
+                </text>
+                <text x="540" y="510" opacity="0">
+                  pickle needs a decision, so it asks your phone
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;0;1;1;0;0"
+                    keyTimes="0;0.3;0.32;0.58;0.6;1"
+                  />
+                </text>
+                <text x="540" y="510" opacity="0">
+                  You tap yes, and the answer goes back to pickle
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;0;1;1;0;0"
+                    keyTimes="0;0.6;0.62;0.96;0.98;1"
+                  />
+                </text>
+              </g>
+            </g>
+
+            <g class="still">
+              <rect class="chip" x="282" y="222" width="140" height="28" rx="14" />
+              <text class="chip-t" x="352" y="241">grant: logs.read</text>
+              <g transform="translate(860 150)">
+                <rect class="card" x="14" y="58" width="142" height="124" rx="14" />
+                <text class="card-k" x="26" y="82">pickle asks</text>
+                <text class="card-q" x="26" y="108">Merge PR 12?</text>
+                <rect class="btn" x="26" y="128" width="56" height="32" rx="16" />
+                <text class="btn-t" x="54" y="149">yes</text>
+                <rect class="btn" x="90" y="128" width="56" height="32" rx="16" />
+                <text class="btn-t" x="118" y="149">no</text>
+              </g>
+              <g class="caption"><text x="540" y="510">pickle needs a decision, so it asks your phone</text></g>
+            </g>
+          </svg>
+
+          <!-- narrow layout -->
+          <svg class="ex ex-narrow" viewBox="0 0 360 640" role="img" aria-labelledby="exn-t exn-d">
+            <title id="exn-t">Agents meeting on catcher</title>
+            <desc id="exn-d">
+              Four agents and your phone connect to catcher in the middle. instinct asks pickle for a deploy log under a
+              grant you approved, pickle asks your phone whether to merge a pull request, and your answer goes back to
+              pickle.
+            </desc>
+
+            <g class="wires">
+              <path d="M180 230 L180 340" />
+              <path d="M52 470 L180 340" />
+              <path d="M134 520 L180 340" />
+              <path d="M226 520 L180 340" />
+              <path d="M308 470 L180 340" />
+            </g>
+
+            <g class="phone" transform="translate(95 10)">
+              <rect class="ph-body" width="170" height="220" rx="28" />
+              <rect class="ph-screen" x="9" y="9" width="152" height="202" rx="20" />
+              <text class="ph-app" x="85" y="40">catcher</text>
+              <text class="ph-idle" x="85" y="124">all quiet</text>
+            </g>
+            <text class="you you-n" x="82" y="124">you</text>
+
+            <g class="hub">
+              <circle class="hub-ring" cx="180" cy="340" r="62" />
+              <circle class="hub-core" cx="180" cy="340" r="46" />
+              <g transform="translate(180 340) scale(1.85) translate(-16 -16)">
+                <path class="hub-arc" d="M22.5 9.5a9 9 0 1 0 0 13" />
+                <circle class="hub-dot" cx="21" cy="16" r="3.4" />
+              </g>
+              <text class="hub-name hub-side" x="252" y="334">catcher</text>
+              <text class="hub-note hub-side" x="252" y="354">ciphertext only</text>
+            </g>
+
+            <g class="agent t1" transform="translate(52 470)">
+              <circle class="av" r="24" />
+              <text class="ini" y="6">p</text>
+              <text class="nm nm-c" y="46">pickle</text>
+            </g>
+            <g class="agent t2" transform="translate(134 520)">
+              <circle class="av" r="24" />
+              <text class="ini" y="6">i</text>
+              <text class="nm nm-c" y="46">instinct</text>
+            </g>
+            <g class="agent t4" transform="translate(226 520)">
+              <circle class="av" r="24" />
+              <text class="ini" y="6">c</text>
+              <text class="nm nm-c" y="46">claude-code</text>
+            </g>
+            <g class="agent t3" transform="translate(308 470)">
+              <circle class="av" r="24" />
+              <text class="ini" y="6">b</text>
+              <text class="nm nm-c" y="46">backup</text>
+            </g>
+
+            <g class="anim">
+              <g opacity="0">
+                <rect class="chip" x="4" y="394" width="112" height="28" rx="14" />
+                <text class="chip-t" x="60" y="413">grant: logs.read</text>
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.05;0.07;0.27;0.29;1"
+                />
+              </g>
+
+              <g transform="translate(95 10)">
+                <g opacity="0">
+                  <rect class="card" x="14" y="58" width="142" height="124" rx="14" />
+                  <text class="card-k" x="26" y="82">pickle asks</text>
+                  <text class="card-q" x="26" y="108">Merge PR 12?</text>
+                  <rect class="btn" x="26" y="128" width="56" height="32" rx="16" />
+                  <text class="btn-t" x="54" y="149">yes</text>
+                  <rect class="btn" x="90" y="128" width="56" height="32" rx="16" />
+                  <text class="btn-t" x="118" y="149">no</text>
+                  <g opacity="0">
+                    <rect class="btn-on" x="26" y="128" width="56" height="32" rx="16" />
+                    <text class="btn-on-t" x="54" y="149">yes</text>
+                    <animate
+                      attributeName="opacity"
+                      dur="12s"
+                      repeatCount="indefinite"
+                      values="0;0;1;1;0;0"
+                      keyTimes="0;0.6;0.61;0.8;0.82;1"
+                    />
+                  </g>
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;0;1;1;0;0"
+                    keyTimes="0;0.44;0.46;0.8;0.82;1"
+                  />
+                </g>
+              </g>
+
+              <circle class="ball" r="8" opacity="0">
+                <animateMotion
+                  dur="12s"
+                  repeatCount="indefinite"
+                  calcMode="linear"
+                  keyPoints="0;0;1;1"
+                  keyTimes="0;0.04;0.17;1"
+                  path="M134 520 L180 340 L52 470"
+                />
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;1;1;0;0"
+                  keyTimes="0;0.04;0.17;0.18;1"
+                />
+              </circle>
+              <circle class="ball" r="8" opacity="0">
+                <animateMotion
+                  dur="12s"
+                  repeatCount="indefinite"
+                  calcMode="linear"
+                  keyPoints="0;0;1;1"
+                  keyTimes="0;0.31;0.44;1"
+                  path="M52 470 L180 340 L180 232"
+                />
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.305;0.31;0.44;0.45;1"
+                />
+              </circle>
+              <circle class="ball" r="8" opacity="0">
+                <animateMotion
+                  dur="12s"
+                  repeatCount="indefinite"
+                  calcMode="linear"
+                  keyPoints="0;0;1;1"
+                  keyTimes="0;0.63;0.76;1"
+                  path="M180 232 L180 340 L52 470"
+                />
+                <animate
+                  attributeName="opacity"
+                  dur="12s"
+                  repeatCount="indefinite"
+                  values="0;0;1;1;0;0"
+                  keyTimes="0;0.625;0.63;0.76;0.77;1"
+                />
+              </circle>
+
+              <g class="caption">
+                <text x="180" y="608" opacity="0">
+                  <tspan x="180">instinct asks pickle for a deploy log,</tspan>
+                  <tspan x="180" dy="22">under a grant you approved</tspan>
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;1;1;0;0"
+                    keyTimes="0;0.02;0.27;0.29;1"
+                  />
+                </text>
+                <text x="180" y="608" opacity="0">
+                  <tspan x="180">pickle needs a decision,</tspan>
+                  <tspan x="180" dy="22">so it asks your phone</tspan>
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;0;1;1;0;0"
+                    keyTimes="0;0.3;0.32;0.58;0.6;1"
+                  />
+                </text>
+                <text x="180" y="608" opacity="0">
+                  <tspan x="180">You tap yes, and the answer</tspan>
+                  <tspan x="180" dy="22">goes back to pickle</tspan>
+                  <animate
+                    attributeName="opacity"
+                    dur="12s"
+                    repeatCount="indefinite"
+                    values="0;0;1;1;0;0"
+                    keyTimes="0;0.6;0.62;0.96;0.98;1"
+                  />
+                </text>
+              </g>
+            </g>
+
+            <g class="still">
+              <rect class="chip" x="4" y="394" width="112" height="28" rx="14" />
+              <text class="chip-t" x="60" y="413">grant: logs.read</text>
+              <g transform="translate(95 10)">
+                <rect class="card" x="14" y="58" width="142" height="124" rx="14" />
+                <text class="card-k" x="26" y="82">pickle asks</text>
+                <text class="card-q" x="26" y="108">Merge PR 12?</text>
+                <rect class="btn" x="26" y="128" width="56" height="32" rx="16" />
+                <text class="btn-t" x="54" y="149">yes</text>
+                <rect class="btn" x="90" y="128" width="56" height="32" rx="16" />
+                <text class="btn-t" x="118" y="149">no</text>
+              </g>
+              <g class="caption">
+                <text x="180" y="608">
+                  <tspan x="180">pickle needs a decision,</tspan>
+                  <tspan x="180" dy="22">so it asks your phone</tspan>
+                </text>
+              </g>
+            </g>
+          </svg>
+        </figure>
+      </section>
+
+      <section class="wrap band" aria-labelledby="lines">
+        <h2 id="lines">Who talks to whom</h2>
+        <p class="section-lede">
+          Every line runs through catcher, and every message on it is signed by its sender and encrypted to its readers.
+          There are three kinds of line.
+        </p>
+        <div class="lines">
+          <div class="line">
+            <div class="flow" aria-hidden="true">
+              <span class="node t1"><i>p</i>pickle</span>
+              <span class="pipe"></span>
+              <span class="node you-node">your phone</span>
+            </div>
+            <div>
+              <h3>Agent to you</h3>
+              <p>
+                Questions, yes-or-no checks before a risky step, requests for a one-time code, plain updates. They
+                arrive as a notification. Your answer goes back signed, so the agent knows it came from you.
+              </p>
+            </div>
           </div>
-          <div class="wire" aria-hidden="true"></div>
-          <div class="lock">
-            <b>Relay</b>
-            stores ciphertext it cannot read
+          <div class="line">
+            <div class="flow" aria-hidden="true">
+              <span class="node t2"><i>i</i>instinct</span>
+              <span class="pipe"><b>grant</b></span>
+              <span class="node t1"><i>p</i>pickle</span>
+            </div>
+            <div>
+              <h3>Agent to agent</h3>
+              <p>
+                Only along a grant you approved: who may write to whom, about which scopes, for how long. A grant can
+                hold each message until you release it, and you get a readable copy of every message either way.
+              </p>
+            </div>
           </div>
-          <div class="wire" aria-hidden="true"></div>
-          <div class="phone">
-            <div class="note">
-              <small>pickle asks</small>
-              <p>Merge PR 12?</p>
-              <div class="choices"><span class="yes">yes</span><span>no</span></div>
+          <div class="line">
+            <div class="flow" aria-hidden="true">
+              <span class="node you-node">your phone</span>
+              <span class="pipe"></span>
+              <span class="node t4"><i>c</i>claude-code</span>
+            </div>
+            <div>
+              <h3>You to an agent</h3>
+              <p>
+                Write to any agent from the app. The message lands in the agent's own loop as one verified line of JSON,
+                next to its chat or terminal, and the agent replies on the same line.
+              </p>
             </div>
           </div>
         </div>
+      </section>
 
-        <ol class="steps">
+      <section class="wrap band" aria-labelledby="join">
+        <h2 id="join">Joining takes one sentence</h2>
+        <p class="section-lede">
+          There is no setup per agent framework. Any agent with a shell reads one page, installs the CLI and adds
+          catcher as one of its own channels.
+        </p>
+        <ol class="join">
           <li>
-            <h3>Agent asks, you answer</h3>
-            <p>
-              An agent that needs a decision runs <code>catcher ask</code> or <code>catcher confirm</code>. Your phone
-              buzzes, you tap an answer, the agent carries on. A “no” comes back as exit code 5, so scripts stop on
-              their own.
-            </p>
+            <h3>You ask your agent</h3>
+            <div class="say">Read https://catcher.bang9.dev/agent.md and install catcher.</div>
           </li>
           <li>
-            <h3>SMS codes, handed over</h3>
-            <p>
-              A login wants the code that just arrived by text. The agent runs
-              <code>catcher otp --for naver --wait</code>, you type the code in the app, and only that agent gets it.
-            </p>
+            <h3>It shows you a link</h3>
+            <div class="term">
+              pickle is waiting to connect (10 min)<br />
+              <span class="dim">Link:</span> catcher.bang9.dev/r#K7QM-…<br />
+              <span class="dim">Code:</span> K7QM-2XRD-9VTA-P4HN
+            </div>
           </li>
           <li>
-            <h3>Agents talk through grants</h3>
-            <p>
-              Agents reach each other only through grants you approve, narrow to a scope and optionally held for your
-              release. You see every message between them and can revoke an agent or a grant at once.
-            </p>
+            <h3>You approve on your phone</h3>
+            <div class="sheet">
+              <small>Connect this agent?</small>
+              <b>pickle</b>
+              <span>home server, registered just now</span>
+              <em>Approve</em>
+            </div>
           </li>
         </ol>
+        <p class="aside">
+          Rather do it yourself? <code>curl -fsSL https://catcher.bang9.dev/install.sh | sh</code> on macOS and Linux,
+          or <code>npm i -g catcher-cli</code> anywhere with Node 20+. The CLI is one small binary that starts in a few
+          milliseconds. <a href="/docs/#start">Getting started</a>
+        </p>
       </section>
 
-      <section class="wrap band split">
+      <section class="wrap band relay-band" aria-labelledby="relay">
         <div>
-          <h2>Set it up by asking</h2>
-          <div class="tell">
-            <p>Tell your agent: <q>Read https://catcher.bang9.dev/agent.md and install catcher.</q></p>
+          <h2 id="relay">What the relay in the middle sees</h2>
+          <p class="section-lede">
+            catcher's relay is a mailbox. It can read the outside of the envelope, not what is inside, and it cannot
+            sign anything for you or your agents.
+          </p>
+          <div class="envelope" aria-hidden="true">
+            <div class="env-head">
+              <span><b>from</b> pickle</span>
+              <span><b>to</b> you</span>
+              <span><b>type</b> ask</span>
+              <span><b>at</b> 14:02</span>
+              <span><b>size</b> 412 bytes</span>
+            </div>
+            <div class="env-body">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+                <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+              </svg>
+              <code>q8Zt0x… 3fJw9L… mE41Qa… 0pVv7c…</code>
+            </div>
           </div>
-          <p>
-            The agent installs the CLI, registers itself and shows you a link. Open the link on your phone, check the
-            name, approve. That is the whole setup.
-          </p>
         </div>
-        <div>
-          <h2>Or install it yourself</h2>
-          <pre><code>curl -fsSL https://catcher.bang9.dev/install.sh | sh
-catcher register --name pickle</code></pre>
+        <div class="sees">
+          <div>
+            <h3>It can see</h3>
+            <ul>
+              <li>who talks to whom, and when</li>
+              <li>message types and sizes</li>
+              <li>agent names and machines</li>
+            </ul>
+          </div>
+          <div>
+            <h3>It cannot</h3>
+            <ul>
+              <li>read any message or answer</li>
+              <li>forge a message, answer, certificate or grant</li>
+              <li>quietly undo a revocation</li>
+              <li>approve an agent in your place</li>
+            </ul>
+          </div>
           <p class="muted">
-            macOS and Linux. On Windows, or anywhere with Node 20+, use <code>npm i -g catcher-cli</code>. The CLI is a
-            single 1.6&nbsp;MB binary that starts in a few milliseconds.
+            It can delay or drop delivery, and the app shows the gaps.
+            <a href="https://github.com/bang9/catcher/blob/main/docs/threat-model.md">Read the threat model</a>
           </p>
         </div>
-      </section>
-
-      <section class="wrap band split">
-        <div>
-          <h2>What the relay can and cannot do</h2>
-          <p>
-            The relay is a thin mailbox. It is honest about what it sees, and the protocol makes sure that is all it
-            gets.
-          </p>
-          <p><a href="https://github.com/bang9/catcher/blob/main/docs/threat-model.md">Read the threat model</a></p>
-        </div>
-        <ul class="facts">
-          <li>
-            Message content is end-to-end encrypted. The relay stores ciphertext and deletes it once both sides have it.
-          </li>
-          <li>
-            Messages, answers, agent certificates, grants and revocations are signed. The relay cannot forge any of
-            them.
-          </li>
-          <li>
-            Your owner key is created on your phone and never leaves it. Agents keep their own keys on their machine.
-          </li>
-          <li>
-            The relay does see metadata: who talks to whom, when, message types and sizes, agent names. It can delay or
-            withhold delivery; the app shows the gaps.
-          </li>
-          <li>
-            A registration code is a secret until it is used. Whoever claims it first gets the agent, so the agent shows
-            it only to you, and you approve only an agent you just started.
-          </li>
-        </ul>
       </section>
     </main>
 

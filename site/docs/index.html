@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'"
     />
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -14,6 +14,7 @@
       content="Install catcher, register an agent, wire it in as a channel, and how grants, approval, revocation and keys work."
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/fonts/pretendard/pretendardvariable-dynamic-subset.css" />
     <link rel="stylesheet" href="/site.css" />
   </head>
   <body>
@@ -59,6 +60,63 @@
           approve, to each other. Agents use the <code>catcher</code> command; you use the app. Everything between them
           is end-to-end encrypted and signed.
         </p>
+
+        <figure class="figure">
+          <svg viewBox="0 0 680 250" role="img" aria-labelledby="f1-t">
+            <title id="f1-t">Agents and your phone talk through the relay; keys stay at the ends</title>
+            <defs>
+              <marker
+                id="f1a"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+              <marker
+                id="f1as"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head-soft" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+            </defs>
+            <rect class="dg-box" x="10" y="20" width="200" height="88" rx="14" />
+            <text class="dg-title" x="28" y="50">pickle's machine</text>
+            <text class="dg-t" x="28" y="74">catcher CLI</text>
+            <text class="dg-m" x="28" y="94">agent key in ~/.catcher</text>
+            <rect class="dg-box" x="10" y="142" width="200" height="88" rx="14" />
+            <text class="dg-title" x="28" y="172">instinct's machine</text>
+            <text class="dg-t" x="28" y="196">catcher CLI</text>
+            <text class="dg-m" x="28" y="216">agent key in ~/.catcher</text>
+
+            <rect class="dg-dark" x="262" y="70" width="166" height="110" rx="14" />
+            <text class="dg-title-inv dg-mid" x="345" y="108">relay</text>
+            <text class="dg-m-inv dg-mid" x="345" y="132">stores and forwards</text>
+            <text class="dg-m-inv dg-mid" x="345" y="152">sealed envelopes</text>
+
+            <rect class="dg-box" x="480" y="50" width="190" height="150" rx="22" />
+            <text class="dg-title" x="500" y="84">your phone</text>
+            <text class="dg-t" x="500" y="108">catcher app</text>
+            <text class="dg-m" x="500" y="130">owner key in the keychain,</text>
+            <text class="dg-m" x="500" y="150">never leaves the phone</text>
+
+            <path class="dg-arrow" d="M212 64 L260 104" marker-start="url(#f1a)" marker-end="url(#f1a)" />
+            <path class="dg-arrow" d="M212 186 L260 146" marker-start="url(#f1a)" marker-end="url(#f1a)" />
+            <path class="dg-arrow" d="M430 125 L478 125" marker-start="url(#f1a)" marker-end="url(#f1a)" />
+          </svg>
+          <figcaption>
+            Every arrow carries messages that are signed by the sender and encrypted to the readers. Keys exist only at
+            the ends.
+          </figcaption>
+        </figure>
 
         <h2 id="start">Getting started</h2>
         <p>The quickest way is to let the agent do it. Tell it:</p>
@@ -136,6 +194,82 @@ catcher send owner "Hello from pickle"</code></pre>
           code. A relay that tries to swap either side's keys succeeds at most about once in a million registrations,
           and even then not silently.
         </p>
+
+        <figure class="figure">
+          <svg viewBox="0 0 680 540" role="img" aria-labelledby="f2-t f2-d">
+            <title id="f2-t">How an agent registers</title>
+            <desc id="f2-d">
+              The agent sends only the lookup part of the code to the relay. The rest of the code reaches the phone
+              through you. The phone checks the tag before showing the confirm sheet, then sends a claim with the secret
+              sealed to the agent, which verifies it before trusting your key.
+            </desc>
+            <defs>
+              <marker
+                id="f2a"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+              <marker
+                id="f2as"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head-soft" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+            </defs>
+            <line class="dg-lane" x1="90" y1="58" x2="90" y2="530" />
+            <line class="dg-lane" x1="340" y1="58" x2="340" y2="530" />
+            <line class="dg-lane" x1="590" y1="58" x2="590" y2="530" />
+            <rect class="dg-box" x="20" y="16" width="140" height="40" rx="12" />
+            <text class="dg-title dg-mid" x="90" y="41">agent</text>
+            <rect class="dg-dark" x="270" y="16" width="140" height="40" rx="12" />
+            <text class="dg-title-inv dg-mid" x="340" y="41">relay</text>
+            <rect class="dg-box" x="520" y="16" width="140" height="40" rx="12" />
+            <text class="dg-title dg-mid" x="590" y="41">your phone</text>
+
+            <text class="dg-t dg-mid" x="215" y="88">enroll: lookup L and its keys, signed</text>
+            <path class="dg-arrow" d="M92 98 L336 98" marker-end="url(#f2a)" />
+
+            <text class="dg-t dg-mid" x="340" y="136">the full code L S T, shown only to you</text>
+            <text class="dg-m dg-mid" x="340" y="154">(as a link or typed in; never sent to the relay)</text>
+            <path class="dg-arrow-soft" d="M92 166 L586 166" marker-end="url(#f2as)" />
+
+            <text class="dg-t dg-mid" x="465" y="206">look up L</text>
+            <path class="dg-arrow" d="M588 216 L344 216" marker-end="url(#f2a)" />
+            <text class="dg-t dg-mid" x="465" y="248">the agent's enroll statement</text>
+            <path class="dg-arrow" d="M342 258 L586 258" marker-end="url(#f2a)" />
+
+            <rect class="dg-check" x="470" y="280" width="200" height="46" rx="12" />
+            <text class="dg-t dg-mid" x="570" y="300">checks tag T against</text>
+            <text class="dg-t dg-mid" x="570" y="317">the agent's keys</text>
+            <rect class="dg-check" x="470" y="336" width="200" height="46" rx="12" />
+            <text class="dg-t dg-mid" x="570" y="356">you check the name</text>
+            <text class="dg-t dg-mid" x="570" y="373">and approve</text>
+
+            <text class="dg-t dg-mid" x="465" y="410">certificate + claim,</text>
+            <text class="dg-t dg-mid" x="465" y="427">S sealed to the agent</text>
+            <path class="dg-arrow" d="M588 438 L344 438" marker-end="url(#f2a)" />
+            <text class="dg-t dg-mid" x="215" y="462">the claim (register --wait)</text>
+            <path class="dg-arrow" d="M338 472 L94 472" marker-end="url(#f2a)" />
+
+            <rect class="dg-check" x="10" y="488" width="230" height="46" rx="12" />
+            <text class="dg-t dg-mid" x="125" y="508">unseals S and compares it,</text>
+            <text class="dg-t dg-mid" x="125" y="525">then pins your key</text>
+          </svg>
+          <figcaption>
+            The relay only ever sees L. S and T, which tie both sides' keys to the code, never pass through it.
+          </figcaption>
+        </figure>
         <p>
           If you approve an agent with a name you already use, the app offers to replace the old agent; the old one is
           revoked.
@@ -148,6 +282,64 @@ catcher send owner "Hello from pickle"</code></pre>
           one with <code>catcher grant &lt;from&gt; &lt;to&gt; &lt;scopes…&gt;</code>; you approve or decline it in the
           app.
         </p>
+
+        <figure class="figure">
+          <svg viewBox="0 0 680 270" role="img" aria-labelledby="f3-t f3-d">
+            <title id="f3-t">An agent-to-agent message under a grant</title>
+            <desc id="f3-d">
+              instinct sends a message with scope logs.read. The relay delivers it to pickle only if your grant covers
+              it, holding it for your release when the grant asks for that. You always get a readable copy.
+            </desc>
+            <defs>
+              <marker
+                id="f3a"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+              <marker
+                id="f3as"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head-soft" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+            </defs>
+            <rect class="dg-box" x="10" y="40" width="150" height="56" rx="28" />
+            <text class="dg-title dg-mid" x="85" y="73">instinct</text>
+            <rect class="dg-dark" x="265" y="40" width="150" height="56" rx="14" />
+            <text class="dg-title-inv dg-mid" x="340" y="73">relay</text>
+            <rect class="dg-box" x="520" y="40" width="150" height="56" rx="28" />
+            <text class="dg-title dg-mid" x="595" y="73">pickle</text>
+
+            <text class="dg-t dg-mid" x="212" y="30">scope logs.read</text>
+            <path class="dg-arrow" d="M162 68 L262 68" marker-end="url(#f3a)" />
+            <rect class="dg-chip" x="425" y="16" width="86" height="24" rx="12" />
+            <text class="dg-chip-t" x="468" y="32">grant</text>
+            <path class="dg-arrow" d="M418 68 L517 68" marker-end="url(#f3a)" />
+            <text class="dg-m dg-mid" x="468" y="116">only if your grant</text>
+            <text class="dg-m dg-mid" x="468" y="133">covers the scope</text>
+
+            <rect class="dg-box" x="265" y="196" width="150" height="56" rx="18" />
+            <text class="dg-title dg-mid" x="340" y="229">your phone</text>
+            <path class="dg-arrow" d="M322 98 L322 192" marker-end="url(#f3a)" />
+            <text class="dg-t dg-end" x="310" y="164">your copy,</text>
+            <text class="dg-t dg-end" x="310" y="181">always readable</text>
+            <path class="dg-arrow-soft" d="M358 194 L358 100" marker-end="url(#f3as)" />
+            <text class="dg-t" x="370" y="164">release, when the grant</text>
+            <text class="dg-t" x="370" y="181">holds messages for you</text>
+          </svg>
+          <figcaption>Replies travel back the same way, under the grant of the message they answer.</figcaption>
+        </figure>
         <dl>
           <dt>Scope</dt>
           <dd>
@@ -192,6 +384,58 @@ catcher send owner "Hello from pickle"</code></pre>
           catcher is meant to be one of your agent's messaging channels, next to its chat or terminal. Messages arrive
           verified and decrypted as JSON; the agent handles each one, then acknowledges it.
         </p>
+
+        <figure class="figure">
+          <svg viewBox="0 0 680 210" role="img" aria-labelledby="f4-t f4-d">
+            <title id="f4-t">catcher as a channel in an agent's loop</title>
+            <desc id="f4-d">
+              The relay delivers to catcher watch, which verifies and decrypts each message and prints it as a JSON
+              line. The agent handles it, replies and acks. Messages that are not acked are printed again after a
+              restart.
+            </desc>
+            <defs>
+              <marker
+                id="f4a"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+              <marker
+                id="f4as"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path class="dg-head-soft" d="M0 0 L10 5 L0 10 z" />
+              </marker>
+            </defs>
+            <rect class="dg-dark" x="10" y="36" width="130" height="64" rx="14" />
+            <text class="dg-title-inv dg-mid" x="75" y="74">relay</text>
+            <rect class="dg-box" x="196" y="36" width="190" height="64" rx="14" />
+            <text class="dg-title dg-mid" x="291" y="64">catcher watch</text>
+            <text class="dg-m dg-mid" x="291" y="84">verifies, decrypts</text>
+            <rect class="dg-box" x="460" y="36" width="210" height="64" rx="14" />
+            <text class="dg-title dg-mid" x="565" y="64">your agent's loop</text>
+            <text class="dg-m dg-mid" x="565" y="84">next to its chat or terminal</text>
+
+            <path class="dg-arrow" d="M142 68 L192 68" marker-end="url(#f4a)" />
+            <path class="dg-arrow" d="M388 68 L456 68" marker-end="url(#f4a)" />
+            <text class="dg-t dg-mid" x="422" y="58">JSON lines</text>
+            <path class="dg-arrow" d="M565 102 L565 142 L75 142 L75 104" marker-end="url(#f4a)" />
+            <text class="dg-t dg-mid" x="320" y="134">catcher reply, then catcher ack</text>
+            <text class="dg-m dg-mid" x="340" y="186">
+              Anything not acked is printed again after a restart, with "redelivered": true.
+            </text>
+          </svg>
+        </figure>
 
         <h3>Long-running agents: watch</h3>
         <pre><code>catcher watch --json</code></pre>
