@@ -15,7 +15,12 @@ import { type AgentSummary, signRequest } from '@catcher/protocol';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SERVER_DIR = join(ROOT, 'apps/server');
-const CLI = join(ROOT, 'apps/cli/dist/catcher.mjs');
+// The CLI under test: the Rust release binary by default; CATCHER_CLI_BIN overrides it as "program [args...]"
+// (for example CATCHER_CLI_BIN="node apps/cli/dist/catcher.mjs" for the TypeScript CLI).
+let CLI_PROGRAM = join(ROOT, 'target/release/catcher');
+if (process.platform === 'win32') CLI_PROGRAM += '.exe';
+let CLI_ARGS: string[] = [];
+if (process.env.CATCHER_CLI_BIN) [CLI_PROGRAM = '', ...CLI_ARGS] = process.env.CATCHER_CLI_BIN.trim().split(/\s+/);
 const WRANGLER = join(SERVER_DIR, 'node_modules/.bin/wrangler');
 
 let work: string;
@@ -44,7 +49,7 @@ interface CliResult {
 }
 
 function cli(agent: string, args: string[], input?: string): CliResult {
-  const r = spawnSync(process.execPath, [CLI, ...args], {
+  const r = spawnSync(CLI_PROGRAM, [...CLI_ARGS, ...args], {
     env: { ...process.env, CATCHER_HOME: join(work, agent), CATCHER_SERVER: server, CLAUDECODE: '' },
     input,
     encoding: 'utf8',
