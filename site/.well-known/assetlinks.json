@@ -3,8 +3,11 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "dev.bang9.catcher",
-      "sha256_cert_fingerprints": ["ANDROID_RELEASE_CERT_SHA256_PLACEHOLDER"]
+      "package_name": "com.bang9dev.catcher",
+      "sha256_cert_fingerprints": [
+        "77:D4:EE:FC:3C:1C:04:BF:7F:CA:60:82:11:0E:F6:60:92:02:EF:40:BB:46:19:FA:55:0C:2E:66:60:51:C1:9B",
+        "C5:BB:96:6D:3C:4A:96:D8:FD:45:AE:2E:70:B5:F4:8E:4F:47:91:8D:FC:67:F7:1A:8C:AE:BF:77:10:9F:ED:70"
+      ]
     }
   }
 ]

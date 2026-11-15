@@ -34,7 +34,7 @@
       const open = document.getElementById('open');
       open.setAttribute(
         'href',
-        `intent://enroll?code=${encodeURIComponent(code)}#Intent;scheme=catcher;package=dev.bang9.catcher;end`,
+        `intent://enroll?code=${encodeURIComponent(code)}#Intent;scheme=catcher;package=com.bang9dev.catcher;end`,
       );
       open.hidden = false;
     }

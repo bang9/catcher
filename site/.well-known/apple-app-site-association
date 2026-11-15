@@ -2,7 +2,7 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["APPLE_TEAM_ID_PLACEHOLDER.dev.bang9.catcher"],
+        "appIDs": ["8U57XD88YP.com.bang9dev.catcher"],
         "components": [{ "/": "/r*", "comment": "agent registration links: /r#<code>" }]
       }
     ]
