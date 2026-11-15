@@ -108,8 +108,9 @@ test('frozen vectors: keys, ids, fingerprint, recovery code, signatures', () => 
   });
   assert.equal(env.ctHash, 'rVb4kYxzj1B2sSvruk899veoqaOo282-IOs2ZdkvAkY');
   assert.equal(env.sig, '8g1wR91ut9rhrPtX83yPuvshra2k3WXjcf6jwnFQNt5dJAQ-LnYmlW5n03tCiRAfL5WtE-8av3_-GD9W8noPAg');
+  // statement signing scheme, frozen on the 0.1 `pairing` kind (retired in 0.2; the bytes signed are unchanged)
   assert.equal(
-    signStatement({ kind: 'pairing', ownerId, issuedAt: NOW }, owner).sig,
+    signStatement({ kind: 'pairing', ownerId, issuedAt: NOW } as never, owner).sig,
     'GTkP2wrWAKF11LFxPdcyacbmpVrKD9XL2jyixpG1eBJ4HMfWXuTmQCD5BkU-IMoUjCsnd8x6x1JHu2JSU6TnBA',
   );
 });
@@ -294,12 +295,15 @@ test('request auth: signature binds method, path, body and time', () => {
 });
 
 test('statements reject the wrong kind or signer', () => {
-  const s = signStatement({ kind: 'pairing', ownerId, issuedAt: NOW }, owner);
-  assert.equal(verifyStatement(s, 'pairing', b64(owner.signPub)).ownerId, ownerId);
+  const s = signStatement(
+    { kind: 'release', ownerId, envelopeId: `m_${'0'.repeat(26)}`, ctHash: 'x', issuedAt: NOW },
+    owner,
+  );
+  assert.equal(verifyStatement(s, 'release', b64(owner.signPub)).ownerId, ownerId);
   assert.throws(() => verifyStatement(s, 'cert', b64(owner.signPub)), /expected a cert/);
-  assert.throws(() => verifyStatement(s, 'pairing', b64(agentA.signPub)), /expected key/);
+  assert.throws(() => verifyStatement(s, 'release', b64(agentA.signPub)), /expected key/);
   assert.throws(
-    () => verifyStatement({ ...s, payload: { ...s.payload, issuedAt: NOW + 1 } }, 'pairing', b64(owner.signPub)),
+    () => verifyStatement({ ...s, payload: { ...s.payload, issuedAt: NOW + 1 } }, 'release', b64(owner.signPub)),
     /invalid/,
   );
 });

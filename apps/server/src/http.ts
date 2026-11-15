@@ -10,7 +10,9 @@ export interface Env {
   DB: D1Database;
   /** realtime notifier, one per owner — carries only "something new for X" signals */
   HUB: DurableObjectNamespace;
-  REGISTER_LIMIT?: RateLimiter;
+  ENROLL_LIMIT?: RateLimiter;
+  ENROLL_LOOKUP_LIMIT?: RateLimiter;
+  ENROLL_POLL_LIMIT?: RateLimiter;
   OWNER_LIMIT?: RateLimiter;
   SEND_LIMIT?: RateLimiter;
   ENVELOPE_TTL_DAYS?: string;
@@ -49,6 +51,16 @@ export function bad(message: string, code = 'bad_request'): never {
   throw new HttpError(400, code, message);
 }
 
+export function clientIp(req: Request): string {
+  return req.headers.get('cf-connecting-ip') ?? 'local';
+}
+
+export async function limitOrThrow(limiter: RateLimiter | undefined, key: string): Promise<void> {
+  if (!limiter) return;
+  const { success } = await limiter.limit({ key });
+  if (!success) throw new HttpError(429, 'rate_limited', 'too many requests; wait a minute');
+}
+
 export function parseJson<T>(body: Uint8Array): T {
   try {
     return JSON.parse(new TextDecoder().decode(body)) as T;
@@ -63,6 +75,8 @@ export interface Caller {
   ownerId: string;
   /** agents only */
   status?: string;
+  /** agents only: null until the agent's first authenticated call */
+  lastSeenAt?: number | null;
 }
 
 /** Ed25519 through native WebCrypto — far cheaper in CPU than a JS implementation on the Workers free plan. */
@@ -75,7 +89,7 @@ export async function verifyEd25519(signPub: string, sig: string, message: Uint8
   }
 }
 
-async function verifyAuth(auth: ParsedAuth, signPub: string, method: string, path: string, body: Uint8Array) {
+export async function verifyAuth(auth: ParsedAuth, signPub: string, method: string, path: string, body: Uint8Array) {
   if (Math.abs(Date.now() - auth.ts) > AUTH_WINDOW_MS) return false;
   return verifyEd25519(signPub, auth.sig, authBytes(method, path, auth.ts, body));
 }
@@ -104,12 +118,18 @@ export async function authenticate(
       caller = { kind: 'owner', id: row.id, ownerId: row.id };
     }
   } else if (auth.callerId.startsWith('a_')) {
-    const row = await env.DB.prepare('SELECT id, owner_id, sign_pub, status FROM agents WHERE id = ?')
+    const row = await env.DB.prepare('SELECT id, owner_id, sign_pub, status, last_seen_at FROM agents WHERE id = ?')
       .bind(auth.callerId)
-      .first<{ id: string; owner_id: string; sign_pub: string; status: string }>();
+      .first<{ id: string; owner_id: string; sign_pub: string; status: string; last_seen_at: number | null }>();
     if (row) {
       signPub = row.sign_pub;
-      caller = { kind: 'agent', id: row.id, ownerId: row.owner_id, status: row.status };
+      caller = {
+        kind: 'agent',
+        id: row.id,
+        ownerId: row.owner_id,
+        status: row.status,
+        lastSeenAt: row.last_seen_at,
+      };
     }
   }
   if (!signPub || !caller || !(await verifyAuth(auth, signPub, req.method, path, body))) {

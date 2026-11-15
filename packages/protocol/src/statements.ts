@@ -69,10 +69,13 @@ export interface ReleasePayload {
   issuedAt: number;
 }
 
-/** Proof that the registering agent holds its secret keys (signed by the agent's own key). */
-export interface RegisterPayload {
-  kind: 'register';
-  code: string;
+/**
+ * An agent asks to be registered (signed by the agent's own key, so it proves it holds the secret). Only `lookup`, the
+ * first part of the registration code, is in it — the rest of the code never reaches the relay (see enroll.ts).
+ */
+export interface EnrollPayload {
+  kind: 'enroll';
+  lookup: string;
   name: string;
   signPub: string;
   boxPub: string;
@@ -81,10 +84,23 @@ export interface RegisterPayload {
   issuedAt: number;
 }
 
-/** Owner creates a pairing code (signed so the server only hands codes to the real owner). */
-export interface PairingPayload {
-  kind: 'pairing';
+/**
+ * The owner claims a registration (signed by the owner's current key). `sealed` carries the code's secret part, sealed
+ * to the agent's box key and bound to every other field, so the agent can tell the owner who typed its code from
+ * anyone else (see enroll.ts).
+ */
+export interface ClaimPayload {
+  kind: 'claim';
   ownerId: string;
+  ownerSignPub: string;
+  ownerBoxPub: string;
+  lookup: string;
+  agentId: string;
+  agentSignPub: string;
+  agentBoxPub: string;
+  ephPub: string;
+  nonce: string;
+  sealed: string;
   issuedAt: number;
 }
 
@@ -94,8 +110,8 @@ export type Payload =
   | RevocationsPayload
   | OwnerKeyPayload
   | ReleasePayload
-  | RegisterPayload
-  | PairingPayload;
+  | EnrollPayload
+  | ClaimPayload;
 
 export interface Signed<P extends Payload = Payload> {
   payload: P;
@@ -143,7 +159,7 @@ export function resolveOwnerKeys(chain: Signed[], ownerId: string, pinned: Publi
     if (!current) {
       if (p.signPub !== pinned.signPub) continue;
       // the pinned link itself: its signer is either itself (genesis) or the previous key we skipped — both fine,
-      // because the agent pinned it out of band (pairing fingerprint)
+      // because the agent pinned it from an owner-signed claim that proved it saw the registration code
       if (p.boxPub !== pinned.boxPub) throw new Error('owner key chain does not match the pinned box key');
       current = { signPub: p.signPub, boxPub: p.boxPub, seq: p.seq };
       continue;

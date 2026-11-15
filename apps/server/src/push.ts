@@ -8,16 +8,11 @@ import type { Env } from './http.ts';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 export type PushKind =
-  | { kind: 'registration'; agentName: string; provider: string; device: string }
   | { kind: 'envelope'; type: string; fromName: string; envelopeId: string }
   | { kind: 'held'; fromName: string; toName: string; envelopeId: string };
 
 const TEXT = {
   ko: {
-    registration: (p: Extract<PushKind, { kind: 'registration' }>) => ({
-      title: '새 에이전트 등록 요청',
-      body: `${p.agentName} (${p.provider} · ${p.device}) — 지문을 확인하고 승인해 주세요`,
-    }),
     envelope: (p: Extract<PushKind, { kind: 'envelope' }>) => {
       const titles: Record<string, string> = {
         ask: `${p.fromName}이(가) 질문했어요`,
@@ -33,10 +28,6 @@ const TEXT = {
     }),
   },
   en: {
-    registration: (p: Extract<PushKind, { kind: 'registration' }>) => ({
-      title: 'New agent wants to register',
-      body: `${p.agentName} (${p.provider} · ${p.device}) — check the fingerprint and approve`,
-    }),
     envelope: (p: Extract<PushKind, { kind: 'envelope' }>) => {
       const titles: Record<string, string> = {
         ask: `${p.fromName} asked a question`,
@@ -57,8 +48,6 @@ function render(locale: string, p: PushKind): { title: string; body: string } {
   let t = TEXT.en;
   if (locale.toLowerCase().startsWith('ko')) t = TEXT.ko;
   switch (p.kind) {
-    case 'registration':
-      return t.registration(p);
     case 'envelope':
       return t.envelope(p);
     case 'held':
@@ -68,8 +57,7 @@ function render(locale: string, p: PushKind): { title: string; body: string } {
 
 function pushData(p: PushKind): { kind: string; envelopeId: string | null; type: string | null } {
   if (p.kind === 'envelope') return { kind: p.kind, envelopeId: p.envelopeId, type: p.type };
-  if (p.kind === 'held') return { kind: p.kind, envelopeId: p.envelopeId, type: 'message' };
-  return { kind: p.kind, envelopeId: null, type: null };
+  return { kind: p.kind, envelopeId: p.envelopeId, type: 'message' };
 }
 
 export async function pushOwner(env: Env, ownerId: string, p: PushKind): Promise<void> {

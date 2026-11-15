@@ -8,7 +8,6 @@
     "test": "pnpm -r --no-bail run test",
     "typecheck": "pnpm -r --no-bail run typecheck && tsc -p tests",
     "e2e": "cargo build --release -p catcher-cli && node --test --test-concurrency=1 tests/e2e/*.test.ts",
-    "e2e:ts": "pnpm --filter catcher-cli build && CATCHER_CLI_BIN=\"node apps/cli/dist/catcher.mjs\" node --test --test-concurrency=1 tests/e2e/*.test.ts",
     "lint": "oxlint",
     "format": "oxfmt",
     "format:check": "oxfmt --check"

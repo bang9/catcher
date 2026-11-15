@@ -3,6 +3,7 @@ export * from './auth.ts';
 export * from './bytes.ts';
 export * from './canonical.ts';
 export * from './crypto.ts';
+export * from './enroll.ts';
 export * from './envelope.ts';
 export * from './identity.ts';
 export * from './policy.ts';

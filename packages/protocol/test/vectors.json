@@ -1,0 +1,480 @@
+{
+  "about": "Frozen vectors for agent-first registration (packages/protocol/src/enroll.ts). Read by packages/protocol/test and crates/catcher-cli/tests. Seeds are 32 bytes filled with the given value.",
+  "now": 1700000000000,
+  "identities": {
+    "owner": {
+      "seedFill": 1,
+      "signPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+      "boxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+      "ownerId": "o_bftqn1ntzbdcw2szt530"
+    },
+    "agent": {
+      "seedFill": 2,
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+      "agentId": "a_sr63g51c5xp71x0m"
+    },
+    "other": {
+      "seedFill": 3,
+      "signPub": "090y5oYd6lM34ywsFYqb0InUFsrzt6PzG41JsHO5Iyc",
+      "boxPub": "UGsQKu-ZOb61cI0wqqvdmxCNjuK4H2wLIVxO3_hW1mo"
+    },
+    "attacker": {
+      "seedFill": 9,
+      "signPub": "ek88G03Z6HJFU_J2540ySCasR1Xklf68Wndo0Hc22zM",
+      "boxPub": "ovd-dTANdzHL1T9Qi9RSVT5mIPER5foZThCZqKs9_yw",
+      "ownerId": "o_zdsyejvx2n5jpdxy56z0"
+    },
+    "nextOwner": {
+      "seedFill": 7,
+      "signPub": "3MYvuY4ZDpa6qlu1-3gBCFa2uIPiPsbz2bRVflsZgF0",
+      "boxPub": "wFUd_JfoO3ugwJ9wCjtiXnDwPqvju5NnSMUy4zPFMHM"
+    }
+  },
+  "agentIds": [
+    {
+      "signPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+      "agentId": "a_xeaa70x16mj2086c"
+    },
+    {
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "agentId": "a_sr63g51c5xp71x0m"
+    },
+    {
+      "signPub": "090y5oYd6lM34ywsFYqb0InUFsrzt6PzG41JsHO5Iyc",
+      "agentId": "a_gvzkfd62rqqftyc5"
+    },
+    {
+      "signPub": "ek88G03Z6HJFU_J2540ySCasR1Xklf68Wndo0Hc22zM",
+      "agentId": "a_ytxcptdagkdak0k7"
+    }
+  ],
+  "codes": [
+    {
+      "random": "00000000000000000000",
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+      "lookup": "00000",
+      "secret": "00000",
+      "tag": "3FEF1",
+      "check": "Z",
+      "code": "0000-0000-003F-EF1Z"
+    },
+    {
+      "random": "ffffffffffffffffffff",
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+      "lookup": "ZZZZZ",
+      "secret": "ZZZZZ",
+      "tag": "YH7P7",
+      "check": "F",
+      "code": "ZZZZ-ZZZZ-ZZYH-7P7F"
+    },
+    {
+      "random": "00010203040506070809",
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+      "lookup": "01234",
+      "secret": "56789",
+      "tag": "XFZW6",
+      "check": "R",
+      "code": "0123-4567-89XF-ZW6R"
+    },
+    {
+      "random": "c1ea52700be801ecad81",
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+      "lookup": "1AJGB",
+      "secret": "81CD1",
+      "tag": "Z72FT",
+      "check": "E",
+      "code": "1AJG-B81C-D1Z7-2FTE"
+    }
+  ],
+  "tagVariants": {
+    "base": {
+      "lookup": "1AJGB",
+      "secret": "81CD1",
+      "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+      "tag": "Z72FT"
+    },
+    "variants": [
+      {
+        "field": "lookup",
+        "value": "00000",
+        "tag": "RHZZP"
+      },
+      {
+        "field": "secret",
+        "value": "00000",
+        "tag": "4SMY9"
+      },
+      {
+        "field": "signPub",
+        "value": "090y5oYd6lM34ywsFYqb0InUFsrzt6PzG41JsHO5Iyc",
+        "tag": "KQ11B"
+      },
+      {
+        "field": "boxPub",
+        "value": "UGsQKu-ZOb61cI0wqqvdmxCNjuK4H2wLIVxO3_hW1mo",
+        "tag": "N70B3"
+      }
+    ]
+  },
+  "parse": [
+    {
+      "input": "1AJG-B81C-D1Z7-2FTE",
+      "ok": {
+        "lookup": "1AJGB",
+        "secret": "81CD1",
+        "tag": "Z72FT"
+      }
+    },
+    {
+      "input": " 1ajgb81c d1z72fte ",
+      "ok": {
+        "lookup": "1AJGB",
+        "secret": "81CD1",
+        "tag": "Z72FT"
+      }
+    },
+    {
+      "input": "https://catcher.bang9.dev/r#1AJG-B81C-D1Z7-2FTE",
+      "ok": {
+        "lookup": "1AJGB",
+        "secret": "81CD1",
+        "tag": "Z72FT"
+      }
+    },
+    {
+      "input": "1AJG-B81C-D1Z7-2FT",
+      "error": "bad_length"
+    },
+    {
+      "input": "1AJG-B81C-D1Z7-2FTE0",
+      "error": "bad_length"
+    },
+    {
+      "input": "1AJG-B81C-D1Z7-2FTU",
+      "error": "bad_char"
+    },
+    {
+      "input": "oooo-oooo-oo3F-EFIZ",
+      "ok": {
+        "lookup": "00000",
+        "secret": "00000",
+        "tag": "3FEF1"
+      }
+    },
+    {
+      "input": "ol23-4567-89xf-zw6r",
+      "ok": {
+        "lookup": "01234",
+        "secret": "56789",
+        "tag": "XFZW6"
+      }
+    },
+    {
+      "input": "1AJGB81CD1Z72FT0",
+      "error": "bad_check"
+    },
+    {
+      "input": "1AJGB80CD1Z72FTE",
+      "error": "bad_check"
+    }
+  ],
+  "enroll": {
+    "statement": {
+      "payload": {
+        "kind": "enroll",
+        "lookup": "1AJGB",
+        "name": "pickle",
+        "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+        "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+        "device": "mac-mini (darwin)",
+        "provider": "claude-code",
+        "issuedAt": 1700000000000
+      },
+      "signer": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+      "sig": "y54GzxYb5WGiuMRye3Zj_XxFAyPIhQ1gI6hVaVN7KDstD9kZ8xdj7r9JqS_-HyWpCORgNFlUSvxq-VHyY21eDw"
+    },
+    "canonical": "{\"ctx\":\"catcher/v1/statement\",\"payload\":{\"boxPub\":\"IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU\",\"device\":\"mac-mini (darwin)\",\"issuedAt\":1700000000000,\"kind\":\"enroll\",\"lookup\":\"1AJGB\",\"name\":\"pickle\",\"provider\":\"claude-code\",\"signPub\":\"tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0\"}}"
+  },
+  "claim": {
+    "ephSecret": "d24f9946e30b4b4b88427c2f55e46b5e39455190e25ef5c4645a9d9cb6f71b12",
+    "nonce": "f76c783f8616aa1e0eeb157f384ae029e5dc43b29e0b30d4",
+    "aad": "{\"claim\":{\"agentBoxPub\":\"IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU\",\"agentId\":\"a_sr63g51c5xp71x0m\",\"agentSignPub\":\"tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0\",\"ephPub\":\"mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk\",\"issuedAt\":1700000000000,\"kind\":\"claim\",\"lookup\":\"1AJGB\",\"nonce\":\"92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU\",\"ownerBoxPub\":\"_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8\",\"ownerId\":\"o_bftqn1ntzbdcw2szt530\",\"ownerSignPub\":\"FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk\"},\"ctx\":\"catcher/v1/claim\"}",
+    "kek": "jLu4xQQRMsD9Dr-EhXpht1aRc6vIbqo-_TaUDb1P9vQ",
+    "statement": {
+      "payload": {
+        "kind": "claim",
+        "ownerId": "o_bftqn1ntzbdcw2szt530",
+        "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+        "lookup": "1AJGB",
+        "agentId": "a_sr63g51c5xp71x0m",
+        "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+        "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+        "ephPub": "mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk",
+        "nonce": "92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU",
+        "issuedAt": 1700000000000,
+        "sealed": "jSIrn89M-yrf_g3b7O4PTCslRir-"
+      },
+      "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+      "sig": "Et9f85rsdQSw1vz3X7O4FsLEfGgOalLUsvGyuRVFqMzH0UwG007cgZn8fPlvKNPeI6gM627Ol-ESNxqTJYPBBw"
+    }
+  },
+  "claimContext": {
+    "agentSeedFill": 2,
+    "agentId": "a_sr63g51c5xp71x0m",
+    "lookup": "1AJGB",
+    "secret": "81CD1"
+  },
+  "claimNegatives": [
+    {
+      "name": "wrong secret",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "CprK8rCnuWA59a-GXpALGWTeLD2Lxrigt_TLCyHdZwE",
+          "nonce": "WgMmTRC_rZnFWq3haBBfWd0AInVmu5P5",
+          "issuedAt": 1700000000000,
+          "sealed": "iHeZ-h5Hd5pcKJt7lUvT71eEefwL"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "ZN65UmGZ1oox1N0ZiwptIQ69s9HadVnSOp6u4lSfzOJQ8pGOX3KqOt1OyV_Jx09p1C2K7AAYIEE3o18J7efrDw"
+      }
+    },
+    {
+      "name": "owner signing key swapped and re-signed by the attacker",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "ek88G03Z6HJFU_J2540ySCasR1Xklf68Wndo0Hc22zM",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk",
+          "nonce": "92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU",
+          "issuedAt": 1700000000000,
+          "sealed": "jSIrn89M-yrf_g3b7O4PTCslRir-"
+        },
+        "signer": "ek88G03Z6HJFU_J2540ySCasR1Xklf68Wndo0Hc22zM",
+        "sig": "0HY3vPBpOjiyFXNFJ0_mJ5j8dSaEq7ZQyZhOo8XUDEOqS6MD4PT86FBzoJZjxGinOABb1xw9SOstDeKj9QY6BA"
+      }
+    },
+    {
+      "name": "owner box key changed (re-signed by the owner key)",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "ovd-dTANdzHL1T9Qi9RSVT5mIPER5foZThCZqKs9_yw",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk",
+          "nonce": "92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU",
+          "issuedAt": 1700000000000,
+          "sealed": "jSIrn89M-yrf_g3b7O4PTCslRir-"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "CZzuZN7a9y_b9wlxQrG8NwBkzzPaJ-SPuBDdoS0IfuirotGlqtYySJdj3QZiBHPcTldLfq19hV23RANcjgPoBg"
+      }
+    },
+    {
+      "name": "owner id changed by the attacker",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_zdsyejvx2n5jpdxy56z0",
+          "ownerSignPub": "ek88G03Z6HJFU_J2540ySCasR1Xklf68Wndo0Hc22zM",
+          "ownerBoxPub": "ovd-dTANdzHL1T9Qi9RSVT5mIPER5foZThCZqKs9_yw",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk",
+          "nonce": "92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU",
+          "issuedAt": 1700000000000,
+          "sealed": "jSIrn89M-yrf_g3b7O4PTCslRir-"
+        },
+        "signer": "ek88G03Z6HJFU_J2540ySCasR1Xklf68Wndo0Hc22zM",
+        "sig": "6w8omGAPy0QVsb8pU5AeSxq26D0jHsj6b7cZ8KSwCRyHORnzcyHrXPXwoim0gW8LXld2m55s-N1vuo9Uvjq2DA"
+      }
+    },
+    {
+      "name": "wrong lookup",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "00000",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "CprK8rCnuWA59a-GXpALGWTeLD2Lxrigt_TLCyHdZwE",
+          "nonce": "WgMmTRC_rZnFWq3haBBfWd0AInVmu5P5",
+          "issuedAt": 1700000000000,
+          "sealed": "6hyA5HUUX-V3ANtjepRntQH4ro8i"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "gAEDF65y8YyyP8apyPrQ9WYX2WWe_7QkDbrorUNDR-cC4MpKpdSciwgV7lqLprlJck-kr6gcYcV2-izYQMHFCQ"
+      }
+    },
+    {
+      "name": "sealed to another agent box key",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "UGsQKu-ZOb61cI0wqqvdmxCNjuK4H2wLIVxO3_hW1mo",
+          "ephPub": "CprK8rCnuWA59a-GXpALGWTeLD2Lxrigt_TLCyHdZwE",
+          "nonce": "WgMmTRC_rZnFWq3haBBfWd0AInVmu5P5",
+          "issuedAt": 1700000000000,
+          "sealed": "fhF6WvM99NsXSJ__Hi5tWHsw-zKF"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "EabxrdZ2yLBsaoWYsQGt7u98_EmE6UzcD9ChZtLIvdpnJGDRXxHUbhTRSUOIf8jfapF-m3FV60A8X46QAPhqDA"
+      }
+    },
+    {
+      "name": "for another agent id",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "1AJGB",
+          "agentId": "a_gvzkfd62rqqftyc5",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "CprK8rCnuWA59a-GXpALGWTeLD2Lxrigt_TLCyHdZwE",
+          "nonce": "WgMmTRC_rZnFWq3haBBfWd0AInVmu5P5",
+          "issuedAt": 1700000000000,
+          "sealed": "6hyA5HXIzj96miS399sbMExNeRaA"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "9bbbetlH1KEqUoaEsI8mDS187xdM5p8ETCFwuPbsjKwyf0EYQsmI83I8bAM9u4XGNzagdWioRmAU9OpepKmJCA"
+      }
+    },
+    {
+      "name": "truncated sealed",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk",
+          "nonce": "92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU",
+          "issuedAt": 1700000000000,
+          "sealed": "jSIrn89M-yrf_g3b7O4PTC"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "XQSbbJ_5NgW8TTRXdYEc4LTRXU607aW7K8d2sgrhy__m_JTO7WxL8-fcmoGst-l8TJin1UsBRc2-BDnIiNt6AQ"
+      }
+    },
+    {
+      "name": "signature broken",
+      "claim": {
+        "payload": {
+          "kind": "claim",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "ownerSignPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "ownerBoxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "lookup": "1AJGB",
+          "agentId": "a_sr63g51c5xp71x0m",
+          "agentSignPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "agentBoxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "ephPub": "mkDyH3VP3IRzRY-uPdCepOMSNNjFSWvs4bPANG8qQAk",
+          "nonce": "92x4P4YWqh4O6xV_OErgKeXcQ7KeCzDU",
+          "issuedAt": 1700000000001,
+          "sealed": "jSIrn89M-yrf_g3b7O4PTCslRir-"
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "Et9f85rsdQSw1vz3X7O4FsLEfGgOalLUsvGyuRVFqMzH0UwG007cgZn8fPlvKNPeI6gM627Ol-ESNxqTJYPBBw"
+      }
+    },
+    {
+      "name": "not a claim",
+      "claim": {
+        "payload": {
+          "kind": "enroll",
+          "lookup": "1AJGB",
+          "name": "pickle",
+          "signPub": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+          "boxPub": "IKZ5QNrmgn-1OyySbMFAcbszaAgJ6eafyonSWR3qrkU",
+          "device": "mac-mini (darwin)",
+          "provider": "claude-code",
+          "issuedAt": 1700000000000
+        },
+        "signer": "tx0QE9hFGmlfvyANYRFZ0cfYcVFgPbwS8OUAkyXI-p0",
+        "sig": "y54GzxYb5WGiuMRye3Zj_XxFAyPIhQ1gI6hVaVN7KDstD9kZ8xdj7r9JqS_-HyWpCORgNFlUSvxq-VHyY21eDw"
+      }
+    }
+  ],
+  "rotation": {
+    "ownerId": "o_bftqn1ntzbdcw2szt530",
+    "chain": [
+      {
+        "payload": {
+          "kind": "owner-key",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "seq": 0,
+          "signPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+          "boxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8",
+          "issuedAt": 1700000000000
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "6g2M31o8HUKlYtAMvJdT1WqtqxoPvckUdETp_To2aKVC_d2pcmGGk07DmC5tejs72US25GJhSH6yT2rX6xzQBw"
+      },
+      {
+        "payload": {
+          "kind": "owner-key",
+          "ownerId": "o_bftqn1ntzbdcw2szt530",
+          "seq": 1,
+          "signPub": "3MYvuY4ZDpa6qlu1-3gBCFa2uIPiPsbz2bRVflsZgF0",
+          "boxPub": "wFUd_JfoO3ugwJ9wCjtiXnDwPqvju5NnSMUy4zPFMHM",
+          "issuedAt": 1700000000001
+        },
+        "signer": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+        "sig": "9EItiTcSWUHEIfZA6bl8ovkVGRXUPGFy-dbAgMq5tw8cdX_E-sBbScD6j1k5ZxrdDCVR7Yy61_scBIaeT7yvAw"
+      }
+    ],
+    "pinned": {
+      "signPub": "FiDeeNlCobI2KraFUYA5Qhh9n92fb9R0bdkubPLj4uk",
+      "boxPub": "_ZzNaNjdHKQGU-z1zJZFp8sklb-e7d0-Aj9R80IDFE8"
+    },
+    "current": {
+      "signPub": "3MYvuY4ZDpa6qlu1-3gBCFa2uIPiPsbz2bRVflsZgF0",
+      "boxPub": "wFUd_JfoO3ugwJ9wCjtiXnDwPqvju5NnSMUy4zPFMHM",
+      "seq": 1
+    }
+  }
+}

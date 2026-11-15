@@ -1,6 +1,6 @@
 // Local files: everything an agent keeps lives under CATCHER_HOME (default ~/.catcher), one folder per profile,
-// readable only by the user: state (secret seed), the verified-directory cache, the message history, acked ids.
-// Same formats as the TS CLI, so either CLI can use a profile the other made.
+// readable only by the user: state (secret seed), a registration in progress (pending.json: seed and code), the
+// verified-directory cache, the message history, acked ids.
 
 use std::fs;
 use std::io::Write;
@@ -150,6 +150,17 @@ pub struct Profile {
     pub dir: String,
 }
 
+/// Held while registering; the lock file goes when this drops.
+pub struct ProfileLock {
+    path: String,
+}
+
+impl Drop for ProfileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 impl Profile {
     pub fn new(name: &str) -> Result<Self, Error> {
         if !valid_profile(name) {
@@ -175,7 +186,7 @@ impl Profile {
         if !self.exists() {
             return Err(Error::Plain {
                 message: format!(
-                    "no agent in profile \"{}\" — run: catcher register --code <code> --name <name>",
+                    "no agent in profile \"{}\" — run: catcher register --name <name>",
                     self.name
                 ),
                 exit: Some(6),
@@ -197,6 +208,74 @@ impl Profile {
                 json::stringify_pretty(&Value::Obj(state.raw.clone()))
             ),
         )
+    }
+
+    /// A registration in progress: seed, code parts, name, server. Written before the relay hears of it.
+    pub fn load_pending(&self) -> Option<Obj> {
+        let text = fs::read(self.path("pending.json")).ok()?;
+        match json::parse(&String::from_utf8_lossy(&text)).ok()? {
+            Value::Obj(o) => Some(o),
+            _ => None,
+        }
+    }
+
+    pub fn has_pending(&self) -> bool {
+        Path::new(&self.path("pending.json")).exists()
+    }
+
+    pub fn save_pending(&self, pending: &Obj) -> Result<(), Error> {
+        ensure_dir(&self.dir)?;
+        write_private(
+            &self.path("pending.json"),
+            &format!("{}\n", json::stringify_pretty(&Value::Obj(pending.clone()))),
+        )
+    }
+
+    pub fn delete_pending(&self) -> Result<(), Error> {
+        let path = self.path("pending.json");
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Error::plain(node_io_message(&e, "unlink", &path))),
+        }
+    }
+
+    /// Exclusive lock for creating or finalising a registration. Waits up to `wait_ms` for another holder; a lock
+    /// older than a minute is from a crashed process and is taken over.
+    pub fn lock(&self, wait_ms: u64) -> Result<ProfileLock, Error> {
+        ensure_dir(&self.dir)?;
+        let path = self.path("register.lock");
+        let started = std::time::Instant::now();
+        loop {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut f) => {
+                    let _ = f.write_all(std::process::id().to_string().as_bytes());
+                    return Ok(ProfileLock { path });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let stale = fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age.as_secs() > 60);
+                    if stale {
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
+                    if started.elapsed().as_millis() as u64 >= wait_ms {
+                        return Err(Error::plain(
+                            "another catcher process is registering this profile — try again in a moment",
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => return Err(Error::plain(node_io_message(&e, "open", &path))),
+            }
+        }
     }
 
     /// Last verified directory (re-verified on load: it is only a cache). Unreadable means none.

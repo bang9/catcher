@@ -17,14 +17,16 @@
   // realtime hub — one per owner, hibernating WebSockets carry "something new" signals only (SQLite class: free plan)
   "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
-  // pairing-code redemption per caller IP — 10 tries a minute
-  // owner creation per IP 5/min, sending per caller 120/min
+  // owner creation per IP 5/min, sending per caller 120/min; registration: enroll per IP 5/min,
+  // owner code lookups per owner 10/min, an enrolling agent's claim polls per code 60/min
   "ratelimits": [
-    { "name": "REGISTER_LIMIT", "namespace_id": "6001", "simple": { "limit": 10, "period": 60 } },
     { "name": "OWNER_LIMIT", "namespace_id": "6002", "simple": { "limit": 5, "period": 60 } },
     { "name": "SEND_LIMIT", "namespace_id": "6003", "simple": { "limit": 120, "period": 60 } },
+    { "name": "ENROLL_LIMIT", "namespace_id": "6004", "simple": { "limit": 5, "period": 60 } },
+    { "name": "ENROLL_LOOKUP_LIMIT", "namespace_id": "6005", "simple": { "limit": 10, "period": 60 } },
+    { "name": "ENROLL_POLL_LIMIT", "namespace_id": "6006", "simple": { "limit": 60, "period": 60 } },
   ],
-  // hourly: drop expired envelopes (30 days) and pairing codes
+  // hourly: drop expired envelopes (30 days) and registration codes
   "triggers": { "crons": ["17 * * * *"] },
   "vars": { "ENVELOPE_TTL_DAYS": "30" },
 }

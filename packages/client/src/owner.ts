@@ -2,13 +2,17 @@
 // The owner key never leaves this side; every decision (cert, grant, revocation, release, answer) is signed here.
 
 import {
+  agentIdFor,
   type AgentSummary,
   type AgentsResponse,
   type AnswerBody,
   b64,
   type BodyByType,
   type CertPayload,
-  type CreatePairingResponse,
+  type ClaimEnrollmentRequest,
+  type ClaimEnrollmentResponse,
+  ENROLL_MAX_MISMATCHES,
+  type EnrollPayload,
   type Envelope,
   type EnvelopeType,
   type FeedResponse,
@@ -19,19 +23,24 @@ import {
   type Identity,
   newIdentity,
   openEnvelope,
+  type OwnerEnrollmentResponse,
   type OwnerKeyPayload,
   type OwnerLookupResponse,
   ownerIdFor,
+  parseEnrollCode,
   publicKeys,
   randomId,
   recoveryCode,
   type RevocationsPayload,
+  sealClaim,
   sealEnvelope,
   seedFromRecoveryCode,
   type Signed,
   signStatement,
   type StoredEnvelope,
+  tagMatches,
   unb64,
+  verifyEnroll,
   verifyEnvelope,
   verifyOwnerChain,
   verifyStatement,
@@ -78,15 +87,60 @@ export interface OwnerItem {
 
 export const CERT_DAYS = 365;
 
+/** What the confirm sheet shows after the code checked out against the relay's answer. */
+export interface EnrollmentPreview {
+  lookup: string;
+  /** derived here from the agent's key, not taken from the relay */
+  agentId: string;
+  name: string;
+  device: string;
+  provider: string;
+  /** when the agent made the code (its own clock) */
+  issuedAt: number;
+  /** when the code stops working (relay clock) */
+  expiresAt: number;
+  /** audit only: the same value `catcher status` prints */
+  fingerprint: string;
+  /** your live agent with the same name, found in your own signed certs — claiming with `replace` revokes it */
+  existing?: { agentId: string; name: string; device: string; provider: string };
+}
+
+export type EnrollmentProblem = 'locked' | 'tag_mismatch' | 'bad_statement' | 'nothing_to_replace';
+
+/** Local refusals. Code typos throw EnrollCodeError (bad_length / bad_char / bad_check); relay answers throw ApiError. */
+export class EnrollmentError extends Error {
+  code: EnrollmentProblem;
+  constructor(code: EnrollmentProblem, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+interface VerifiedEnrollment {
+  code: { lookup: string; secret: string; tag: string };
+  payload: EnrollPayload;
+  preview: EnrollmentPreview;
+}
+
 export class OwnerClient {
   state: OwnerState;
   identity: Identity;
   api: Api;
+  /**
+   * Tag mismatches per lookup. After ENROLL_MAX_MISMATCHES the app refuses that code without asking the relay. Pass a
+   * persisted map to keep the count across restarts.
+   */
+  enrollMismatches: Map<string, number>;
   private save: (s: OwnerState) => void;
   private fetchImpl: Fetch | undefined;
+  private verifiedEnrollments = new Map<string, VerifiedEnrollment>();
 
-  constructor(state: OwnerState, opts: { fetch?: Fetch; save?: (s: OwnerState) => void } = {}) {
+  constructor(
+    state: OwnerState,
+    opts: { fetch?: Fetch; save?: (s: OwnerState) => void; enrollMismatches?: Map<string, number> } = {},
+  ) {
     this.state = state;
+    this.enrollMismatches = opts.enrollMismatches ?? new Map();
     this.identity = identityFromSeed(unb64(state.seed));
     this.fetchImpl = opts.fetch;
     this.api = new Api({ server: state.server, callerId: state.ownerId, identity: this.identity, fetch: opts.fetch });
@@ -159,14 +213,6 @@ export class OwnerClient {
     await this.api.call('POST', '/v1/owner/push-tokens/delete', { token });
   }
 
-  async createPairing(): Promise<CreatePairingResponse> {
-    const statement = signStatement(
-      { kind: 'pairing', ownerId: this.state.ownerId, issuedAt: Date.now() },
-      this.identity,
-    );
-    return this.api.call<CreatePairingResponse>('POST', '/v1/owner/pairings', { statement });
-  }
-
   async agents(): Promise<AgentsResponse> {
     return this.api.call<AgentsResponse>('GET', '/v1/owner/agents');
   }
@@ -179,37 +225,143 @@ export class OwnerClient {
     return fingerprint({ signPub: agent.signPub, boxPub: agent.boxPub });
   }
 
-  /** Approve a pending registration (after the person compared fingerprints) — signs the cert. */
-  async approveAgent(agent: AgentSummary, days = CERT_DAYS): Promise<Signed<CertPayload>> {
-    const now = Date.now();
-    // the cert carries today's revocation version, so the new agent can never be served an older list
-    const dir = await this.directory();
-    let revocationFloor = 0;
-    if (dir.revocations) {
-      revocationFloor = verifyStatement(dir.revocations, 'revocations', b64(this.identity.signPub)).version;
+  /**
+   * Step 1–4 of adding an agent: check the code locally (length, characters, check character), refuse a lookup that
+   * already failed ENROLL_MAX_MISMATCHES times, fetch the agent's self-signed statement by its lookup (the only part of
+   * the code that leaves the phone), verify it, and match the code's tag against the agent keys the relay returned.
+   * Returns what the confirm sheet shows. Nothing is approved yet.
+   */
+  async lookupEnrollment(code: string): Promise<EnrollmentPreview> {
+    const parsed = parseEnrollCode(code);
+    if ((this.enrollMismatches.get(parsed.lookup) ?? 0) >= ENROLL_MAX_MISMATCHES) {
+      throw new EnrollmentError('locked', 'this code failed its check too often — ask the agent to run register again');
     }
+    const res = await this.api.call<OwnerEnrollmentResponse>('GET', `/v1/owner/enrollments/${parsed.lookup}`);
+    let payload: EnrollPayload;
+    try {
+      payload = verifyEnroll(res.statement, parsed.lookup);
+    } catch {
+      throw new EnrollmentError('bad_statement', 'the relay answered with a registration that does not check out');
+    }
+    if (!tagMatches(parsed, payload)) {
+      this.enrollMismatches.set(parsed.lookup, (this.enrollMismatches.get(parsed.lookup) ?? 0) + 1);
+      throw new EnrollmentError(
+        'tag_mismatch',
+        'this code does not match the agent the relay returned — check the code; nothing was approved',
+      );
+    }
+    const preview: EnrollmentPreview = {
+      lookup: parsed.lookup,
+      agentId: agentIdFor(payload.signPub),
+      name: payload.name,
+      device: payload.device,
+      provider: payload.provider,
+      issuedAt: payload.issuedAt,
+      expiresAt: res.expiresAt,
+      fingerprint: fingerprint({ signPub: payload.signPub, boxPub: payload.boxPub }),
+    };
+    const existing = await this.liveAgentNamed(payload.name);
+    if (existing) preview.existing = existing;
+    this.verifiedEnrollments.set(parsed.lookup, { code: parsed, payload, preview });
+    return preview;
+  }
+
+  /**
+   * Step 5, after the person tapped approve on the confirm sheet: sign the cert and the claim (which seals the code's
+   * secret part to the agent) and post both. With `replace`, the live agent of the same name is revoked first.
+   */
+  async claimEnrollment(code: string, opts: { replace?: boolean } = {}): Promise<{ agentId: string; name: string }> {
+    const parsed = parseEnrollCode(code);
+    let verified = this.verifiedEnrollments.get(parsed.lookup);
+    // replacing revokes the old agent: check right before that the code is still valid and unclaimed, so a typo or a
+    // used code never costs the old agent
+    const stale = !verified || verified.code.secret !== parsed.secret || verified.code.tag !== parsed.tag;
+    if (stale || opts.replace) {
+      await this.lookupEnrollment(code);
+      verified = this.verifiedEnrollments.get(parsed.lookup);
+    }
+    if (!verified) throw new EnrollmentError('bad_statement', 'look the code up first');
+    const { payload, preview } = verified;
+    let revocationFloor: number;
+    let replace: string | undefined;
+    if (opts.replace) {
+      if (!preview.existing)
+        throw new EnrollmentError('nothing_to_replace', `you have no live agent named ${payload.name}`);
+      replace = preview.existing.agentId;
+      // the cert carries the revocation version that includes the old agent
+      revocationFloor = (await this.revoke({ agents: [replace] })).payload.version;
+    } else {
+      revocationFloor = await this.revocationVersion();
+    }
+    const now = Date.now();
     const cert = signStatement(
       {
         kind: 'cert',
         ownerId: this.state.ownerId,
-        agentId: agent.agentId,
-        name: agent.name,
-        signPub: agent.signPub,
-        boxPub: agent.boxPub,
-        device: agent.device,
-        provider: agent.provider,
+        agentId: preview.agentId,
+        name: payload.name,
+        signPub: payload.signPub,
+        boxPub: payload.boxPub,
+        device: payload.device,
+        provider: payload.provider,
         issuedAt: now,
-        expiresAt: now + days * 86_400_000,
+        expiresAt: now + CERT_DAYS * 86_400_000,
         revocationFloor,
       },
       this.identity,
     );
-    await this.api.call('POST', '/v1/owner/certs', { cert });
-    return cert;
+    const claim = sealClaim({
+      owner: this.identity,
+      ownerId: this.state.ownerId,
+      lookup: parsed.lookup,
+      secret: parsed.secret,
+      agentId: preview.agentId,
+      agentSignPub: payload.signPub,
+      agentBoxPub: payload.boxPub,
+      issuedAt: now,
+    });
+    const body: ClaimEnrollmentRequest = { claim, cert };
+    if (replace) body.replace = replace;
+    const res = await this.api.call<ClaimEnrollmentResponse>(
+      'POST',
+      `/v1/owner/enrollments/${parsed.lookup}/claim`,
+      body,
+    );
+    this.verifiedEnrollments.delete(parsed.lookup);
+    return { agentId: res.agentId, name: payload.name };
   }
 
-  async rejectAgent(agentId: string): Promise<void> {
-    await this.api.call('POST', `/v1/owner/agents/${agentId}/reject`, {});
+  /** Current revocation list version, verified with this phone's key (0 when there is none). */
+  private async revocationVersion(): Promise<number> {
+    const dir = await this.directory();
+    if (!dir.revocations) return 0;
+    return verifyStatement(dir.revocations, 'revocations', b64(this.identity.signPub)).version;
+  }
+
+  /** A live agent with this name, from certs this owner key signed (never from the relay's word). */
+  private async liveAgentNamed(name: string): Promise<EnrollmentPreview['existing']> {
+    const dir = await this.directory();
+    const key = b64(this.identity.signPub);
+    const revoked = new Set<string>();
+    if (dir.revocations) {
+      try {
+        for (const a of verifyStatement(dir.revocations, 'revocations', key).agents) revoked.add(a);
+      } catch {
+        // mid-rotation the list may still carry the old key; a stale hit only offers a replace that revokes again
+      }
+    }
+    const now = Date.now();
+    for (const s of dir.certs) {
+      let c: CertPayload;
+      try {
+        c = verifyStatement(s, 'cert', key);
+      } catch {
+        continue;
+      }
+      if (c.ownerId !== this.state.ownerId || c.name !== name || c.expiresAt <= now || revoked.has(c.agentId)) continue;
+      return { agentId: c.agentId, name: c.name, device: c.device, provider: c.provider };
+    }
+    return undefined;
   }
 
   async grant(input: {

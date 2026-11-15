@@ -6,13 +6,10 @@ import {
   type AckRequest,
   type AgentSummary,
   type AppendOwnerKeyRequest,
-  b32,
   type CreateOwnerRequest,
-  type CreatePairingRequest,
   type Envelope,
   ENVELOPE_TYPES,
   ID_PATTERN,
-  NAME_PATTERN,
   OWNER_REQUEST_TYPES,
   type PostCertRequest,
   type PostEnvelopeRequest,
@@ -20,9 +17,6 @@ import {
   type PostReleaseRequest,
   type PostRevocationsRequest,
   type PushTokenRequest,
-  randomBytes,
-  randomId,
-  type RegisterRequest,
   requiredRecipients,
   SCOPE_PATTERN,
   verifyOwnerChain,
@@ -31,9 +25,11 @@ import {
 import {
   bad,
   type Caller,
+  clientIp,
   type Env,
   HttpError,
   json,
+  limitOrThrow,
   parseJson,
   requireActiveAgentOrOwner,
   requireOwner,
@@ -42,7 +38,6 @@ import { signal } from './hub.ts';
 import { pushOwner } from './push.ts';
 import { type AgentRow, type EnvelopeRow, getOwner, loadDirectory, nameOf, parseOrNull, toStored } from './store.ts';
 
-const PAIRING_TTL_MS = 10 * 60 * 1000;
 const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_MS = 10 * 60 * 1000;
 /** delivered envelopes stay this long after both sides have them (agent acked, owner app synced) */
@@ -73,12 +68,6 @@ function statementError(e: unknown): never {
   return bad((e as Error).message, 'bad_statement');
 }
 
-async function limitOrThrow(limiter: Env['REGISTER_LIMIT'], key: string): Promise<void> {
-  if (!limiter) return;
-  const { success } = await limiter.limit({ key });
-  if (!success) throw new HttpError(429, 'rate_limited', 'too many requests; wait a minute');
-}
-
 async function bumpDirectory(env: Env, ctx: ExecutionContext, ownerId: string): Promise<void> {
   await env.DB.prepare('UPDATE owners SET dir_version = dir_version + 1 WHERE id = ?').bind(ownerId).run();
   later(ctx, signal(env, ownerId, { to: '*', kind: 'directory' }));
@@ -88,7 +77,7 @@ async function bumpDirectory(env: Env, ctx: ExecutionContext, ownerId: string): 
 
 /** Unauthenticated: the genesis key signs itself; the owner id is derived from it. */
 export async function createOwner(env: Env, request: Request, body: Uint8Array): Promise<Response> {
-  await limitOrThrow(env.OWNER_LIMIT, `owner:${request.headers.get('cf-connecting-ip') ?? 'local'}`);
+  await limitOrThrow(env.OWNER_LIMIT, `owner:${clientIp(request)}`);
   const req = parseJson<CreateOwnerRequest>(body);
   if (!Array.isArray(req.chain)) bad('chain is required');
   const first = req.chain?.[0];
@@ -165,26 +154,6 @@ export async function deletePushToken(env: Env, caller: Caller, body: Uint8Array
   return json({ ok: true });
 }
 
-export async function createPairing(env: Env, caller: Caller, body: Uint8Array): Promise<Response> {
-  requireOwner(caller);
-  const { statement } = parseJson<CreatePairingRequest>(body);
-  const owner = await getOwner(env, caller.ownerId);
-  try {
-    const p = verifyStatement(statement, 'pairing', owner.sign_pub);
-    if (p.ownerId !== caller.ownerId) bad('pairing is for another owner');
-    freshTime(p.issuedAt, Date.now());
-  } catch (e) {
-    statementError(e);
-  }
-  // 8 Crockford base32 characters (40 bits), single use, 10 minutes
-  const code = b32(randomBytes(5)).slice(0, 8);
-  const now = Date.now();
-  await env.DB.prepare('INSERT INTO pairings (code, owner_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
-    .bind(code, caller.ownerId, now + PAIRING_TTL_MS, now)
-    .run();
-  return json({ code, expiresAt: now + PAIRING_TTL_MS }, 201);
-}
-
 function agentSummary(r: AgentRow): AgentSummary {
   return {
     agentId: r.id,
@@ -228,23 +197,10 @@ export async function postCert(env: Env, caller: Caller, body: Uint8Array, ctx: 
   if (agent.sign_pub !== c.signPub || agent.box_pub !== c.boxPub || agent.name !== c.name) {
     bad('cert does not match the registered agent keys', 'cert_mismatch');
   }
-  if (agent.status !== 'pending' && agent.status !== 'active') bad(`agent is ${agent.status}`, 'agent_closed');
-  await env.DB.prepare("UPDATE agents SET status = 'active', cert = ? WHERE id = ?")
-    .bind(JSON.stringify(cert), c.agentId)
-    .run();
+  // renewal and re-signing after a key rotation only; new agents arrive through a claim (enroll.ts)
+  if (agent.status !== 'active') bad(`agent is ${agent.status}`, 'agent_closed');
+  await env.DB.prepare('UPDATE agents SET cert = ? WHERE id = ?').bind(JSON.stringify(cert), c.agentId).run();
   await bumpDirectory(env, ctx, caller.ownerId);
-  later(ctx, signal(env, caller.ownerId, { to: c.agentId, kind: 'registration' }));
-  return json({ ok: true });
-}
-
-export async function rejectAgent(env: Env, caller: Caller, agentId: string): Promise<Response> {
-  requireOwner(caller);
-  const r = await env.DB.prepare(
-    "UPDATE agents SET status = 'rejected' WHERE id = ? AND owner_id = ? AND status = 'pending'",
-  )
-    .bind(agentId, caller.ownerId)
-    .run();
-  if (!r.meta.changes) throw new HttpError(404, 'not_found', 'no pending agent with that id');
   return json({ ok: true });
 }
 
@@ -399,55 +355,6 @@ export async function envelopeStates(env: Env, caller: Caller, url: URL): Promis
 
 // ─── agent ───────────────────────────────────────────────────────────────────
 
-export async function register(env: Env, req: Request, body: Uint8Array, ctx: ExecutionContext): Promise<Response> {
-  await limitOrThrow(env.REGISTER_LIMIT, `register:${req.headers.get('cf-connecting-ip') ?? 'local'}`);
-  const { statement } = parseJson<RegisterRequest>(body);
-  const p = statement?.payload;
-  if (p?.kind !== 'register' || typeof p.signPub !== 'string') bad('expected a register statement');
-  try {
-    verifyStatement(statement, 'register', p.signPub);
-  } catch (e) {
-    return statementError(e);
-  }
-  const now = Date.now();
-  freshTime(p.issuedAt, now);
-  if (!NAME_PATTERN.test(p.name)) bad('name must be lowercase letters, digits and dashes (max 32)', 'bad_name');
-  const device = String(p.device).slice(0, 80);
-  const provider = String(p.provider).slice(0, 40);
-  const code = String(p.code).toUpperCase().replace(/[\s-]/g, '');
-  const pairing = await env.DB.prepare('SELECT * FROM pairings WHERE code = ?').bind(code).first<{
-    code: string;
-    owner_id: string;
-    expires_at: number;
-    used_at: number | null;
-  }>();
-  if (!pairing || pairing.used_at || pairing.expires_at < now) {
-    throw new HttpError(404, 'bad_code', 'pairing code is wrong, used, or expired — make a new one in the catcher app');
-  }
-  const taken = await env.DB.prepare(
-    "SELECT id FROM agents WHERE owner_id = ? AND name = ? AND status IN ('pending', 'active')",
-  )
-    .bind(pairing.owner_id, p.name)
-    .first();
-  if (taken) throw new HttpError(409, 'name_taken', `an agent named ${p.name} already exists`);
-  const dupKey = await env.DB.prepare('SELECT id FROM agents WHERE sign_pub = ?').bind(p.signPub).first();
-  if (dupKey) throw new HttpError(409, 'key_taken', 'this key is already registered');
-  const used = await env.DB.prepare('UPDATE pairings SET used_at = ? WHERE code = ? AND used_at IS NULL')
-    .bind(now, code)
-    .run();
-  if (!used.meta.changes) throw new HttpError(404, 'bad_code', 'pairing code was just used');
-  const agentId = randomId('a');
-  await env.DB.prepare(
-    "INSERT INTO agents (id, owner_id, name, sign_pub, box_pub, device, provider, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
-  )
-    .bind(agentId, pairing.owner_id, p.name, p.signPub, p.boxPub, device, provider, now)
-    .run();
-  const owner = await getOwner(env, pairing.owner_id);
-  later(ctx, pushOwner(env, pairing.owner_id, { kind: 'registration', agentName: p.name, provider, device }));
-  later(ctx, signal(env, pairing.owner_id, { to: pairing.owner_id, kind: 'registration', id: agentId }));
-  return json({ agentId, ownerId: pairing.owner_id, ownerChain: JSON.parse(owner.chain) }, 201);
-}
-
 export async function me(env: Env, caller: Caller): Promise<Response> {
   if (caller.kind !== 'agent') throw new HttpError(403, 'agent_only', 'only agents have /me');
   const row = await env.DB.prepare('SELECT * FROM agents WHERE id = ?').bind(caller.id).first<AgentRow>();
@@ -482,14 +389,19 @@ async function touch(env: Env, caller: Caller, now: number): Promise<void> {
     .run();
 }
 
-/** The heartbeat. One indexed read when empty; dirVersion tells the agent whether its cached directory is stale. */
+/**
+ * The heartbeat. One indexed read when empty; dirVersion tells the agent whether its cached directory is stale.
+ * `after` pages past unacked messages the agent is still working on (acks are explicit).
+ */
 export async function inbox(env: Env, caller: Caller, url: URL, ctx: ExecutionContext): Promise<Response> {
   requireActiveAgentOrOwner(caller);
   const limit = clampLimit(url, 50, 200);
+  let after = Math.floor(Number(url.searchParams.get('after') ?? '0'));
+  if (!Number.isSafeInteger(after) || after < 0) after = 0;
   const [rows, version] = await env.DB.batch([
     env.DB.prepare(
-      'SELECT * FROM envelopes WHERE to_id = ? AND acked_at IS NULL AND held = 0 ORDER BY cursor LIMIT ?',
-    ).bind(caller.id, limit),
+      'SELECT * FROM envelopes WHERE to_id = ? AND acked_at IS NULL AND held = 0 AND cursor > ? ORDER BY cursor LIMIT ?',
+    ).bind(caller.id, after, limit),
     env.DB.prepare('SELECT dir_version FROM owners WHERE id = ?').bind(caller.ownerId),
   ]);
   later(ctx, touch(env, caller, Date.now()));
@@ -707,9 +619,7 @@ export async function cleanup(env: Env): Promise<void> {
     ).bind(now - DELIVERED_GRACE_MS),
     env.DB.prepare('DELETE FROM envelopes WHERE held = 2 AND received_at < ?').bind(now - DELIVERED_GRACE_MS),
     env.DB.prepare('DELETE FROM envelopes WHERE expires_at < ?').bind(now),
-    env.DB.prepare('DELETE FROM pairings WHERE expires_at < ?').bind(now - 86_400_000),
-    env.DB.prepare("DELETE FROM agents WHERE status IN ('pending', 'rejected') AND created_at < ?").bind(
-      now - 7 * 86_400_000,
-    ),
+    // unclaimed codes once expired; claimed ones 24 h after the agent's first call, 30 days at most (enroll.ts)
+    env.DB.prepare('DELETE FROM enrollments WHERE expires_at < ?').bind(now),
   ]);
 }

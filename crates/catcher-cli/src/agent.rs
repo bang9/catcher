@@ -1,4 +1,4 @@
-// Agent side: registration, verified directory, sending, inbox (verify + decrypt), ack, waiting on answers.
+// Agent side: verified directory, sending, inbox (verify + decrypt), ack, waiting on answers.
 // Every envelope is checked against owner-signed certs and grants locally; the relay is not trusted.
 
 use std::collections::{HashMap, HashSet};
@@ -7,14 +7,13 @@ use std::time::Duration;
 
 use crate::api::Api;
 use crate::auth::now_ms;
-use crate::bytes::{b64, unb64};
+use crate::bytes::unb64;
 use crate::crypto::random_bytes;
 use crate::envelope::{OWNER_REQUEST_TYPES, SealInput, open_envelope, seal_envelope};
 use crate::error::Error;
 use crate::identity::{Identity, fingerprint, identity_from_seed, public_keys, random_id};
 use crate::json::{self, Obj, Value, is, number_to_string, strict_eq, to_js_string, truthy};
 use crate::policy::{Trust, build_trust, check_envelope};
-use crate::statements::{resolve_owner_keys, sign_statement};
 use crate::store::{AgentState, Profile};
 
 /// A verified, decrypted message. Fields stay JSON so output matches the TS CLI byte for byte.
@@ -32,6 +31,8 @@ pub struct Received {
     pub created_at: Option<Value>,
     pub expires_at: Option<Value>,
     pub received_at: Option<Value>,
+    /// agent traffic only: (grant id, the grant needs an owner release — which this message then carried)
+    pub grant: Option<(String, bool)>,
     pub body: Value,
 }
 
@@ -92,14 +93,17 @@ impl Rejected {
     }
 }
 
+pub struct InboxPage {
+    pub received: Vec<Received>,
+    pub rejected: Vec<Rejected>,
+    /// highest cursor on the page (or `after` when empty)
+    pub last_cursor: f64,
+    /// the page was full: there may be more
+    pub full: bool,
+}
+
 /// This agent's sent messages by id: (type, toId). Replies and answers must point at one of them.
 pub type Outgoing = HashMap<String, (Option<Value>, Option<Value>)>;
-
-pub struct RegisterResult {
-    pub state: AgentState,
-    pub agent_fingerprint: String,
-    pub owner_fingerprint: String,
-}
 
 /// Agent names; `owner` is reserved.
 pub fn valid_name(name: &str) -> bool {
@@ -174,72 +178,6 @@ impl<'p> AgentClient<'p> {
             outgoing,
             cached_trust: None,
             cached_version: Some(Value::Num(0.0)),
-        })
-    }
-
-    /// Redeem a pairing code. The agent stays pending until the owner checks the fingerprint and approves.
-    pub fn register(
-        server: &str,
-        code: &str,
-        name: &str,
-        device: &str,
-        provider: &str,
-    ) -> Result<RegisterResult, Error> {
-        if !valid_name(name) {
-            return Err(Error::plain(
-                "name must be lowercase letters, digits and dashes (max 32)",
-            ));
-        }
-        let identity = identity_from_seed(&random_bytes(32))?;
-        let keys = public_keys(&identity);
-        let payload = Obj::new()
-            .with("kind", "register")
-            .with("code", code)
-            .with("name", name)
-            .with("signPub", &keys.sign_pub)
-            .with("boxPub", &keys.box_pub)
-            .with("device", device)
-            .with("provider", provider)
-            .with("issuedAt", now_ms());
-        let statement = sign_statement(Value::Obj(payload), &identity)?;
-        let api = Api::new(server, None);
-        let body = Value::Obj(Obj::new().with("statement", statement));
-        let res = api.call("POST", "/v1/register", Some(&body), false)?;
-        let chain = res.get("ownerChain").cloned().unwrap_or(Value::Null);
-        // pin the owner key the relay reported; the person confirms it by comparing fingerprints with the app
-        let genesis = chain
-            .as_arr()
-            .and_then(|a| a.first())
-            .and_then(|l| l.get("payload"))
-            .filter(|p| !json::nullish(Some(p)));
-        let Some(genesis) = genesis else {
-            return Err(Error::plain("server returned no owner key"));
-        };
-        let owner_id = to_js_string(res.get("ownerId"));
-        let pin = resolve_owner_keys(
-            &chain,
-            &owner_id,
-            &to_js_string(genesis.get("signPub")),
-            &to_js_string(genesis.get("boxPub")),
-        )?;
-        let state = Obj::new()
-            .with("server", server)
-            .with("agentId", res.get("agentId").cloned())
-            .with("ownerId", res.get("ownerId").cloned())
-            .with("name", name)
-            .with("seed", b64(&identity.seed))
-            .with(
-                "ownerPin",
-                Obj::new()
-                    .with("signPub", &pin.sign_pub)
-                    .with("boxPub", &pin.box_pub),
-            )
-            .with("revocationVersion", 0.0)
-            .with("seq", 0.0);
-        Ok(RegisterResult {
-            state: AgentState { raw: state },
-            agent_fingerprint: fingerprint(&keys.sign_pub, &keys.box_pub),
-            owner_fingerprint: fingerprint(&pin.sign_pub, &pin.box_pub),
         })
     }
 
@@ -551,6 +489,13 @@ impl<'p> AgentClient<'p> {
                     check_envelope(&trust, &env, release, now_ms())?;
                 }
                 let body = open_envelope(&env, &me, &self.identity)?;
+                let grant = match core.get("grantId") {
+                    Some(Value::Str(g)) if !is(core.get("from"), &trust.owner_id) => Some((
+                        g.clone(),
+                        trust.grant(g).is_some_and(|g| g.require_approval),
+                    )),
+                    _ => None,
+                };
                 Ok(Received {
                     id: c("id"),
                     cursor: row.get("cursor").cloned(),
@@ -564,6 +509,7 @@ impl<'p> AgentClient<'p> {
                     created_at: c("createdAt"),
                     expires_at: c("expiresAt"),
                     received_at: row.get("receivedAt").cloned(),
+                    grant,
                     body,
                 })
             })();
@@ -581,19 +527,64 @@ impl<'p> AgentClient<'p> {
         Ok((received, rejected))
     }
 
-    pub fn inbox(&mut self, limit: f64) -> Result<(Vec<Received>, Vec<Rejected>), Error> {
+    /// Replies and answers are checked against this; a long-running watch refreshes it from history.
+    pub fn set_outgoing(&mut self, outgoing: Outgoing) {
+        self.outgoing = Some(outgoing);
+    }
+
+    /// One page of unacked messages after `after` (cursor). Rows whose id is in `skip` (already handed out in this
+    /// run) are not verified again.
+    pub fn inbox_page(
+        &mut self,
+        limit: f64,
+        after: f64,
+        skip: &HashSet<String>,
+    ) -> Result<InboxPage, Error> {
         let res = self.api.call(
             "GET",
-            &format!("/v1/inbox?limit={}", number_to_string(limit)),
+            &format!(
+                "/v1/inbox?limit={}&after={}",
+                number_to_string(limit),
+                number_to_string(after)
+            ),
             None,
             true,
         )?;
-        let rows = res
+        let all = res
             .get("envelopes")
             .and_then(Value::as_arr)
             .cloned()
             .unwrap_or_default();
+        let full = all.len() as f64 >= limit;
+        let last = all
+            .iter()
+            .filter_map(|r| r.num("cursor"))
+            .fold(after, f64::max);
+        let rows: Vec<Value> = all
+            .into_iter()
+            .filter(|r| {
+                let id = r
+                    .get("envelope")
+                    .and_then(|e| e.get("core"))
+                    .and_then(|c| c.str("id"));
+                !id.is_some_and(|id| skip.contains(id))
+            })
+            .collect();
         let dir_version = res.get("dirVersion").cloned();
+        let (received, rejected) = self.inbox_verify(rows, dir_version)?;
+        Ok(InboxPage {
+            received,
+            rejected,
+            last_cursor: last,
+            full,
+        })
+    }
+
+    fn inbox_verify(
+        &mut self,
+        rows: Vec<Value>,
+        dir_version: Option<Value>,
+    ) -> Result<(Vec<Received>, Vec<Rejected>), Error> {
         if rows.is_empty() {
             // nothing to verify, but still notice directory changes (this agent revoked, owner key rotated)
             let cached = self.profile.load_directory();

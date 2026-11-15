@@ -41,7 +41,8 @@ export function unb64(text: string): Uint8Array {
   return out.subarray(0, o);
 }
 
-const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+/** Crockford base32 alphabet (no I, L, O, U) */
+export const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
 /** Crockford base32 (upper case, no padding) — for codes people read or type */
 export function b32(bytes: Uint8Array): string {
@@ -61,8 +62,13 @@ export function b32(bytes: Uint8Array): string {
   return out;
 }
 
+/** What people type → canonical Crockford: upper case, no spaces or dashes, O → 0, I/L → 1. */
+export function normalizeB32(text: string): string {
+  return text.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+}
+
 export function unb32(text: string): Uint8Array {
-  const clean = text.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  const clean = normalizeB32(text);
   const out: number[] = [];
   let acc = 0;
   let bits = 0;

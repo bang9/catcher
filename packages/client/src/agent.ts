@@ -1,8 +1,7 @@
-// Agent side — registration, verified directory, sending, inbox (verify + decrypt), ack, waiting on answers.
+// Agent side — verified directory, sending, inbox (verify + decrypt), ack, waiting on answers.
 // Every envelope is checked against owner-signed certs and grants locally; the server is not trusted.
 
 import {
-  b64,
   boxKeyOf,
   buildTrust,
   checkEnvelope,
@@ -14,17 +13,13 @@ import {
   type Identity,
   type InboxResponse,
   type MeResponse,
-  NAME_PATTERN,
   openEnvelope,
   PolicyError,
   type PostEnvelopeResponse,
   publicKeys,
   randomId,
-  type RegisterResponse,
   type RepliesResponse,
-  resolveOwnerKeys,
   sealEnvelope,
-  signStatement,
   type StoredEnvelope,
   type Trust,
   unb64,
@@ -70,22 +65,6 @@ export interface Rejected {
   code: string;
 }
 
-export interface RegisterInput {
-  server: string;
-  code: string;
-  name: string;
-  device: string;
-  provider: string;
-  fetch?: Fetch;
-  seed?: Uint8Array;
-}
-
-export interface RegisterResult {
-  state: AgentState;
-  agentFingerprint: string;
-  ownerFingerprint: string;
-}
-
 /** Where the agent keeps the last verified directory between runs (re-verified on load — it is only a cache). */
 export interface DirectoryCache {
   load(): { version: number; directory: Directory } | null;
@@ -128,46 +107,6 @@ export class AgentClient {
     this.dirCache = opts.directoryCache;
     this.seen = opts.seen ?? (() => false);
     this.outgoing = opts.outgoing;
-  }
-
-  /** Redeem a pairing code. The agent is pending until the owner checks the fingerprint and approves in the app. */
-  static async register(input: RegisterInput): Promise<RegisterResult> {
-    if (!NAME_PATTERN.test(input.name)) throw new Error('name must be lowercase letters, digits and dashes (max 32)');
-    const identity = identityFromSeed(input.seed ?? crypto.getRandomValues(new Uint8Array(32)));
-    const keys = publicKeys(identity);
-    const statement = signStatement(
-      {
-        kind: 'register',
-        code: input.code,
-        name: input.name,
-        ...keys,
-        device: input.device,
-        provider: input.provider,
-        issuedAt: Date.now(),
-      },
-      identity,
-    );
-    const api = new Api({ server: input.server, fetch: input.fetch });
-    const res = await api.call<RegisterResponse>('POST', '/v1/register', { statement }, { auth: false });
-    // pin the owner key the server reported; the person confirms it by comparing fingerprints with the app
-    const genesis = res.ownerChain[0]?.payload;
-    if (!genesis) throw new Error('server returned no owner key');
-    const pin = resolveOwnerKeys(res.ownerChain, res.ownerId, { signPub: genesis.signPub, boxPub: genesis.boxPub });
-    const state: AgentState = {
-      server: input.server,
-      agentId: res.agentId,
-      ownerId: res.ownerId,
-      name: input.name,
-      seed: b64(identity.seed),
-      ownerPin: { signPub: pin.signPub, boxPub: pin.boxPub },
-      revocationVersion: 0,
-      seq: 0,
-    };
-    return {
-      state,
-      agentFingerprint: fingerprint(keys),
-      ownerFingerprint: fingerprint({ signPub: pin.signPub, boxPub: pin.boxPub }),
-    };
   }
 
   agentFingerprint(): string {

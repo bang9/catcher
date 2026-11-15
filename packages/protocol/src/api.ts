@@ -4,10 +4,10 @@ import type { Envelope } from './envelope.ts';
 import type { Directory } from './policy.ts';
 import type {
   CertPayload,
+  ClaimPayload,
+  EnrollPayload,
   GrantPayload,
   OwnerKeyPayload,
-  PairingPayload,
-  RegisterPayload,
   ReleasePayload,
   RevocationsPayload,
   Signed,
@@ -27,7 +27,7 @@ export interface StoredEnvelope {
   receivedAt: number;
 }
 
-export type AgentStatus = 'pending' | 'active' | 'rejected' | 'revoked';
+export type AgentStatus = 'active' | 'revoked';
 
 export interface AgentSummary {
   agentId: string;
@@ -62,12 +62,21 @@ export interface PushTokenRequest {
   platform: 'ios' | 'android' | 'web';
   locale: string;
 }
-export interface CreatePairingRequest {
-  statement: Signed<PairingPayload>;
-}
-export interface CreatePairingResponse {
-  code: string;
+/** GET /v1/owner/enrollments/{lookup} — the agent's self-signed statement; the app checks it against the code. */
+export interface OwnerEnrollmentResponse {
+  statement: Signed<EnrollPayload>;
   expiresAt: number;
+  /** a live agent of this owner already has the name (a hint only: the app finds it in its own signed certs) */
+  existing?: { agentId: string };
+}
+export interface ClaimEnrollmentRequest {
+  claim: Signed<ClaimPayload>;
+  cert: Signed<CertPayload>;
+  /** the old same-name agent, already revoked by the owner, that this agent replaces */
+  replace?: string;
+}
+export interface ClaimEnrollmentResponse {
+  agentId: string;
 }
 export interface FeedResponse {
   envelopes: StoredEnvelope[];
@@ -92,14 +101,17 @@ export interface PostReleaseRequest {
 }
 
 // — agent —
-export interface RegisterRequest {
-  statement: Signed<RegisterPayload>;
+export interface EnrollRequest {
+  statement: Signed<EnrollPayload>;
 }
-export interface RegisterResponse {
+export interface EnrollResponse {
   agentId: string;
-  ownerId: string;
-  ownerChain: Signed<OwnerKeyPayload>[];
+  expiresAt: number;
 }
+/** GET /v1/enroll/{lookup}, signed by the enrolling agent's key */
+export type EnrollStatusResponse =
+  | { status: 'waiting'; expiresAt: number }
+  | { status: 'claimed'; claim: Signed<ClaimPayload>; cert: Signed<CertPayload> | null };
 export interface MeResponse {
   agentId: string;
   ownerId: string;
