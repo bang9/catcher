@@ -104,6 +104,9 @@ pnpm e2e        # local relay (wrangler dev) + headless owner + two CLI agents
 pnpm --filter @catcher/server dev   # relay on http://localhost:8787 (the website is static: open site/)
 ```
 
+Running your own relay (Docker anywhere, or your own Cloudflare account): see
+[Run your own relay](https://catcher.bang9.dev/docs/#self-host) and `apps/server/docker/`.
+
 Releasing the CLI: bump `crates/catcher-cli/Cargo.toml`, push a `cli-v<version>` tag. The release workflow builds
 macOS (arm64, x64), Linux (x64, arm64, static musl) and Windows (x64) binaries, publishes a GitHub Release and the npm
 launcher with provenance.

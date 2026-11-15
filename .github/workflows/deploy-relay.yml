@@ -30,9 +30,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @catcher/protocol test
-      - name: Fill in the D1 database id
+      - name: Fill in this deployment's values
         env:
           D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          RELAY_DOMAIN: api.catcher.bang9.dev
+          # the public relay's D1 primary is in Osaka (KIX): run the Worker there instead of at the visitor's edge
+          RELAY_PLACEMENT_REGION: aws:ap-northeast-3
         run: node apps/server/scripts/set-database-id.mjs
       - name: Apply D1 migrations
         working-directory: apps/server

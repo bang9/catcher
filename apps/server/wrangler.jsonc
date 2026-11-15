@@ -1,12 +1,10 @@
-// catcher relay — Cloudflare Worker + D1. Deploy by hand: `pnpm --filter @catcher/server exec wrangler deploy`
+// catcher relay — Cloudflare Worker + D1. Deploy: `node scripts/deploy.mjs --yes` with D1_DATABASE_ID (and optionally
+// RELAY_DOMAIN, RELAY_PLACEMENT_REGION) in the environment — see scripts/config.mjs. Without Cloudflare: docker/.
 {
   "name": "catcher",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "workers_dev": false,
-  // run next to the D1 primary (APAC, served from KIX): free-plan traffic from Korea enters at a US edge, and without
-  // this every D1 query from the Worker crossed the Pacific (~0.5 s each). One hop to Osaka beats one per query.
-  "placement": { "mode": "targeted", "region": "aws:ap-northeast-3" },
   "preview_urls": false,
   // the relay only; the website (site/) is a separate static origin on GitHub Pages, so a relay breach cannot touch
   // the /r link page or the installer

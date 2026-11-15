@@ -1,0 +1,32 @@
+# Your own catcher relay on any machine with Docker and a domain pointing at it:
+#   RELAY_DOMAIN=relay.example.com docker compose up -d
+# Then use https://relay.example.com in the app (welcome screen → gear) and CATCHER_SERVER for agents.
+services:
+  relay:
+    build:
+      context: ../../..
+      dockerfile: apps/server/docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      # optional: only if push security is turned on for your Expo project
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+    volumes:
+      - relay-data:/data
+
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    depends_on:
+      - relay
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?set RELAY_DOMAIN to the relay's host name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  relay-data:
+  caddy-data:

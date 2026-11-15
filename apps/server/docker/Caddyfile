@@ -1,0 +1,11 @@
+# HTTPS in front of the relay: Caddy gets and renews the certificate for RELAY_DOMAIN by itself.
+{$RELAY_DOMAIN} {
+	# the cleanup trigger is for the container itself, not the internet
+	@internal path /__scheduled*
+	respond @internal 404
+
+	reverse_proxy relay:8787 {
+		# the relay rate-limits per client address and reads it from this header (as on Cloudflare)
+		header_up CF-Connecting-IP {remote_host}
+	}
+}

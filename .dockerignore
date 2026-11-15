@@ -1,0 +1,11 @@
+**/node_modules
+**/.wrangler
+**/.dev.vars
+target
+apps/mobile
+!apps/mobile/package.json
+site
+crates
+tests
+docs
+.git
