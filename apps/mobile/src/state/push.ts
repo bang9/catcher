@@ -99,17 +99,8 @@ export async function openFromNotification(data: PushData): Promise<void> {
   } catch {
     // open whatever we have locally
   }
-  const { owner, items, agents } = getState();
+  const { owner, items } = getState();
   if (!owner) return;
-  if (data.kind === 'registration') {
-    const pending = agents.filter((a) => a.status === 'pending').at(-1);
-    if (pending) {
-      router.push({ pathname: '/registration/[agentId]', params: { agentId: pending.agentId } });
-      return;
-    }
-    router.navigate('/');
-    return;
-  }
   const item = items.find((i) => i.id === data.envelopeId);
   if (!item) {
     router.navigate('/');

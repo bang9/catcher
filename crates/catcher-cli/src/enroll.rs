@@ -86,9 +86,9 @@ pub fn enroll_code(lookup: &str, secret: &str, sign_pub: &str, box_pub: &str) ->
     }
 }
 
-/// `<server>/r#<code>`: the fragment never reaches any server.
-pub fn enroll_link(server: &str, code: &str) -> String {
-    format!("{}/r#{code}", server.trim_end_matches('/'))
+/// `<site>/r#<code>`: the fragment never reaches any server.
+pub fn enroll_link(site: &str, code: &str) -> String {
+    format!("{}/r#{code}", site.trim_end_matches('/'))
 }
 
 /// Same normalisation as the TS `normalizeB32`: upper case, no spaces or dashes, O → 0, I/L → 1.

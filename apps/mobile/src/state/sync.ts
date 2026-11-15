@@ -2,7 +2,7 @@
 // Single-flight: every trigger (realtime signal, foreground, push, pull-to-refresh, after an action) joins the run
 // in progress, and one more pass runs after it if anything asked while it was busy.
 
-import { ApiError, OwnerClient, type OwnerItem, type OwnerState } from '@catcher/client';
+import { ApiError, OwnerClient, type OwnerItem, type OwnerState, RollbackError } from '@catcher/client';
 import {
   type AgentSummary,
   type Directory,
@@ -29,8 +29,28 @@ import { getState, type GrantView, setState } from './store';
 const PAGE = 200;
 const STATE_CHUNK = 100;
 
+const MISMATCHES_KEY = 'enrollMismatches';
+
+/** Registration codes that failed their tag check, per lookup — kept on disk so the 3-strike lock survives a restart. */
+function loadMismatches(): Map<string, number> {
+  const out = new Map<string, number>();
+  try {
+    const raw: unknown = JSON.parse(getKv(MISMATCHES_KEY) ?? '{}');
+    if (raw && typeof raw === 'object') {
+      for (const [lookup, n] of Object.entries(raw)) if (typeof n === 'number') out.set(lookup, n);
+    }
+  } catch {
+    // unreadable: start counting again
+  }
+  return out;
+}
+
+export function saveMismatches(owner: OwnerClient): void {
+  setKv(MISMATCHES_KEY, JSON.stringify(Object.fromEntries(owner.enrollMismatches)));
+}
+
 export function makeClient(state: OwnerState): OwnerClient {
-  return new OwnerClient(state, { save: saveOwnerState });
+  return new OwnerClient(state, { save: saveOwnerState, enrollMismatches: loadMismatches() });
 }
 
 /** App start: read the owner key from the keychain. */
@@ -84,18 +104,40 @@ export function refreshFromDisk(): void {
   setState({ items: loadItems(nameLookup(agents, owner.state.ownerId)) });
 }
 
-function grantViews(dir: Directory, ownerSignPub: string): { grants: GrantView[]; revokedAgents: string[] } {
+/**
+ * The relay's revocation list must never be older than one this phone signed or saw: an older list would quietly bring
+ * revoked agents and grants back. A newer one raises the remembered version (saved with the owner state).
+ */
+function checkRevocationVersion(owner: OwnerClient, version: number): void {
+  const floor = owner.state.revocationVersion ?? 0;
+  if (version < floor) throw new RollbackError(floor, version);
+  if (version > floor) {
+    owner.state.revocationVersion = version;
+    saveOwnerState(owner.state);
+  }
+}
+
+function grantViews(
+  owner: OwnerClient,
+  dir: Directory,
+  ownerSignPub: string,
+): { grants: GrantView[]; revokedAgents: string[] } {
   let revokedGrants: string[] = [];
   let revokedAgents: string[] = [];
+  let version = 0;
+  let readable = !dir.revocations;
   if (dir.revocations) {
     try {
       const r = verifyStatement(dir.revocations, 'revocations', ownerSignPub);
       revokedGrants = r.grants;
       revokedAgents = r.agents;
+      version = r.version;
+      readable = true;
     } catch {
-      // not signed by the current key: ignore, like agents do
+      // not signed by the current key (mid-rotation): ignore, like agents do
     }
   }
+  if (readable) checkRevocationVersion(owner, version);
   const now = Date.now();
   const grants: GrantView[] = [];
   for (const s of dir.grants) {
@@ -138,7 +180,15 @@ async function syncOnce(): Promise<void> {
   const signKeys = dir.ownerChain.map((l) => l.payload.signPub);
   const agents = agentsRes.agents;
   const ownerKeySince = dir.ownerChain.find((l) => l.payload.seq === current.seq)?.payload.issuedAt ?? 0;
-  setState({ agents, senderSeq: agentsRes.senderSeq, ownerKeySince, ...grantViews(dir, current.signPub) });
+  setState({ agents, senderSeq: agentsRes.senderSeq, ownerKeySince });
+  // an older permission list than this phone has seen: keep the grants we had, still sync messages, then warn
+  let rollback: RollbackError | null = null;
+  try {
+    setState(grantViews(owner, dir, current.signPub));
+  } catch (e) {
+    if (!(e instanceof RollbackError)) throw e;
+    rollback = e;
+  }
 
   // feed pages; asking for the next page (after=cursor) is what lets the relay delete synced rows
   let cursor = getCursor();
@@ -183,6 +233,7 @@ async function syncOnce(): Promise<void> {
   }
 
   setState({ items: loadItems(nameLookup(agents, owner.state.ownerId)), lastSyncAt: Date.now(), syncError: null });
+  if (rollback) throw rollback;
 }
 
 let running: Promise<void> | null = null;

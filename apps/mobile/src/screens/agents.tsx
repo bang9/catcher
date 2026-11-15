@@ -26,10 +26,7 @@ function Section({ title, agents, now }: { title: string; agents: AgentSummary[]
         {agents.map((a, i) => {
           let sub = `${a.provider} · ${a.device}`;
           if (a.status === 'active') sub = `${sub} · ${presence(a, now)}`;
-          let open = () => router.push({ pathname: '/agent/[agentId]', params: { agentId: a.agentId } });
-          if (a.status === 'pending') {
-            open = () => router.push({ pathname: '/registration/[agentId]', params: { agentId: a.agentId } });
-          }
+          const open = () => router.push({ pathname: '/agent/[agentId]', params: { agentId: a.agentId } });
           return (
             <Row
               key={a.agentId}
@@ -52,8 +49,7 @@ export function AgentsScreen() {
   const agents = useApp((s) => s.agents);
   const now = useNow(30_000);
   const active = agents.filter((a) => a.status === 'active');
-  const pending = agents.filter((a) => a.status === 'pending');
-  const closed = agents.filter((a) => a.status === 'revoked' || a.status === 'rejected');
+  const closed = agents.filter((a) => a.status === 'revoked');
   return (
     <Screen testID="agents" onRefresh={sync}>
       <Stack.Screen
@@ -78,7 +74,6 @@ export function AgentsScreen() {
           action={<Button label={t('inbox.addAgent')} onPress={() => router.push('/add-agent')} />}
         />
       )}
-      <Section title={t('agents.pending')} agents={pending} now={now} />
       <Section title={t('agents.active')} agents={active} now={now} />
       <Section title={t('agents.closed')} agents={closed} now={now} />
     </Screen>

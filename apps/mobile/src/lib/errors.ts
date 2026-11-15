@@ -1,9 +1,10 @@
 // Turn any failure into one sentence a person can act on.
 
-import { ApiError } from '@catcher/client';
+import { ApiError, RollbackError } from '@catcher/client';
 import { t } from '@/i18n';
 
 export function describeError(e: unknown): string {
+  if (e instanceof RollbackError) return t('error.rollback');
   if (e instanceof ApiError) {
     if (e.status === 0) return t('error.network');
     if (e.code === 'already_answered') return t('error.alreadyAnswered');

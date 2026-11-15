@@ -19,6 +19,8 @@ let CLI_PROGRAM = join(ROOT, 'target/release/catcher');
 if (process.platform === 'win32') CLI_PROGRAM += '.exe';
 let CLI_ARGS: string[] = [];
 if (process.env.CATCHER_CLI_BIN) [CLI_PROGRAM = '', ...CLI_ARGS] = process.env.CATCHER_CLI_BIN.trim().split(/\s+/);
+/** the CLI under test as [program, ...args] */
+export const cliCommand = (): [string, string[]] => [CLI_PROGRAM, CLI_ARGS];
 
 export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -232,11 +234,11 @@ export function cli(
   relay: Relay,
   home: string,
   args: string[],
-  opts: { server?: string; input?: string } = {},
+  opts: { server?: string; input?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<CliResult> {
   return new Promise((resolve) => {
     const child = spawn(CLI_PROGRAM, [...CLI_ARGS, ...args], {
-      env: cliEnv(relay, home, opts.server),
+      env: { ...cliEnv(relay, home, opts.server), ...opts.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     child.stdin.end(opts.input ?? '');

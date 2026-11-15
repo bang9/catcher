@@ -27,7 +27,6 @@ export function useAgentMap(): Map<string, AgentSummary> {
 }
 
 export interface Pending {
-  registrations: AgentSummary[];
   requests: LocalItem[];
   held: LocalItem[];
   count: number;
@@ -42,10 +41,9 @@ export function usePending(): Pending {
     // `now` re-runs this so expired requests drop out without a sync
     void now;
     const waiting = pendingForOwner(items, ownerId) as LocalItem[];
-    const registrations = agents.filter((a) => a.status === 'pending');
     const held = newestFirst(waiting.filter((i) => i.held));
     const requests = newestFirst(waiting.filter((i) => !i.held));
-    return { registrations, requests, held, count: registrations.length + requests.length + held.length };
+    return { requests, held, count: requests.length + held.length };
   }, [items, agents, ownerId, now]);
 }
 

@@ -41,7 +41,7 @@ Agents reject a revocation list older than one they have seen (rollback).
 ## Registration (agent first)
 
 The agent makes a fresh key and a 16-character code, and shows its user the code or the link
-`<server>/r#<code>` (the fragment never reaches a server). The owner opens the link or types the code in the app and
+`<site>/r#<code>` on the static website, not the relay (the fragment never reaches a server). The owner opens the link or types the code in the app and
 approves on a confirm sheet; claiming is approving.
 
 ```
@@ -80,7 +80,9 @@ the owner's current key, for that lookup, with the agent keys and name of the en
 
 Relay endpoints: `POST /v1/enroll` (unauthenticated; the statement is self-signed), `GET /v1/enroll/{L}` (the agent
 polls for its claim, signing with the enrolling key and its derived agent id), `GET /v1/owner/enrollments/{L}` and
-`POST /v1/owner/enrollments/{L}/claim` (owner). Codes live 10 minutes.
+`POST /v1/owner/enrollments/{L}/claim` (owner). Codes live 10 minutes from the agent's `issuedAt` (the agent ignores the
+relay's expiry); an expired lookup stays reserved for its original key for a day. The agent drops a registration only
+once the relay says the code is gone (404/410): a claim that arrived in time still finalises later.
 
 ## Envelopes
 

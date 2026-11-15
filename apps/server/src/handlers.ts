@@ -449,9 +449,17 @@ function structural(envelope: Envelope): void {
   if (!ENVELOPE_TYPES.includes(c.type)) bad('unknown envelope type');
   if (!ID_PATTERN.envelope.test(c.id)) bad('envelope id must look like m_ + 26 base32 characters');
   if (!Number.isSafeInteger(c.seq) || c.seq < 1) bad('seq must be a positive integer');
-  if (c.scope !== null && !SCOPE_PATTERN.test(c.scope)) bad('bad scope');
+  if (typeof c.from !== 'string' || typeof c.to !== 'string' || typeof c.ownerId !== 'string') bad('bad parties');
+  if (c.scope !== null && (typeof c.scope !== 'string' || !SCOPE_PATTERN.test(c.scope))) bad('bad scope');
+  if (c.grantId !== null && (typeof c.grantId !== 'string' || !ID_PATTERN.grant.test(c.grantId))) bad('bad grant id');
+  if (!Number.isSafeInteger(c.createdAt)) bad('createdAt must be an integer');
+  if (c.expiresAt !== null && !Number.isSafeInteger(c.expiresAt)) bad('expiresAt must be an integer or null');
   if (c.from === c.to) bad('cannot send to yourself');
-  if ((c.type === 'reply' || c.type === 'answer') && !c.ref) bad(`${c.type} needs ref`);
+  if (c.type === 'reply' || c.type === 'answer') {
+    if (typeof c.ref !== 'string' || !ID_PATTERN.envelope.test(c.ref)) bad(`${c.type} needs ref`);
+  } else if (c.ref !== null) {
+    bad('only replies and answers carry ref');
+  }
   if (c.type === 'answer' && c.from !== c.ownerId) bad('only the owner can answer');
   if (OWNER_REQUEST_TYPES.includes(c.type) && c.to !== c.ownerId) bad(`${c.type} goes to the owner only`);
   const need = requiredRecipients(c);
@@ -619,7 +627,10 @@ export async function cleanup(env: Env): Promise<void> {
     ).bind(now - DELIVERED_GRACE_MS),
     env.DB.prepare('DELETE FROM envelopes WHERE held = 2 AND received_at < ?').bind(now - DELIVERED_GRACE_MS),
     env.DB.prepare('DELETE FROM envelopes WHERE expires_at < ?').bind(now),
-    // unclaimed codes once expired; claimed ones 24 h after the agent's first call, 30 days at most (enroll.ts)
-    env.DB.prepare('DELETE FROM enrollments WHERE expires_at < ?').bind(now),
+    // unclaimed codes a day after they expired (their lookup is reserved until then); claimed ones 24 h after the
+    // agent's first call, 30 days at most (enroll.ts)
+    env.DB.prepare(
+      'DELETE FROM enrollments WHERE (claimed_at IS NULL AND expires_at < ?) OR (claimed_at IS NOT NULL AND expires_at < ?)',
+    ).bind(now - 86_400_000, now),
   ]);
 }

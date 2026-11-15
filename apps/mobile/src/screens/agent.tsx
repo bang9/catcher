@@ -63,7 +63,7 @@ function GrantList({
 }
 
 export function AgentScreen() {
-  const { agentId } = useLocalSearchParams<{ agentId: string }>();
+  const { agentId, connected } = useLocalSearchParams<{ agentId: string; connected?: string }>();
   const agent = useApp((s) => s.agents.find((a) => a.agentId === agentId));
   const agents = useApp((s) => s.agents);
   const grants = useApp((s) => s.grants);
@@ -139,18 +139,18 @@ export function AgentScreen() {
       />
     );
   }
-  if (agent.status === 'pending') {
-    footer = (
-      <Button
-        label={t('agent.review')}
-        onPress={() => router.push({ pathname: '/registration/[agentId]', params: { agentId: agent.agentId } })}
-      />
-    );
-  }
 
   return (
     <Screen testID="agent-detail" onRefresh={sync} footer={footer}>
       <Stack.Screen options={{ title: agent.name }} />
+      {connected === '1' && active && (
+        <Banner
+          testID="agent-connected"
+          tone="info"
+          title={t('agent.connectedTitle')}
+          body={t('agent.connectedBody')}
+        />
+      )}
       {error && <Banner tone="danger" title={error} />}
       <SectionTitle>{t('field.fingerprint')}</SectionTitle>
       <Code testID="agent-fingerprint" value={owner.agentFingerprint(agent)} size={22} />

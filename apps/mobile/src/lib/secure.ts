@@ -19,12 +19,20 @@ function isOwnerState(value: unknown): value is OwnerState {
   );
 }
 
+/** Optional fields added later: missing is fine (older saves), a wrong type is dropped rather than trusted. */
+function tidy(state: OwnerState): OwnerState {
+  const v = state as unknown as Record<string, unknown>;
+  if (v.revocationVersion !== undefined && !Number.isSafeInteger(v.revocationVersion)) delete v.revocationVersion;
+  if (v.pendingSeed !== undefined && typeof v.pendingSeed !== 'string') delete v.pendingSeed;
+  return state;
+}
+
 export async function loadOwnerState(): Promise<OwnerState | null> {
   const raw = await SecureStore.getItemAsync(KEY, OPTIONS);
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (isOwnerState(parsed)) return parsed;
+    if (isOwnerState(parsed)) return tidy(parsed);
   } catch {
     // unreadable entry — treat as no owner
   }

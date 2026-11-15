@@ -58,6 +58,11 @@ export interface OwnerState {
   seq: number;
   /** next key while a rotation is in flight — stored before the relay hears of it, so a crash never loses it */
   pendingSeed?: string;
+  /**
+   * Highest revocation list version this phone signed or saw. A relay list older than this is a rollback (it would
+   * quietly un-revoke agents) and is refused. Persist it with the rest of the state.
+   */
+  revocationVersion?: number;
 }
 
 /** One envelope as the owner sees it: verified against the sender's owner-signed cert, then decrypted. */
@@ -105,7 +110,7 @@ export interface EnrollmentPreview {
   existing?: { agentId: string; name: string; device: string; provider: string };
 }
 
-export type EnrollmentProblem = 'locked' | 'tag_mismatch' | 'bad_statement' | 'nothing_to_replace';
+export type EnrollmentProblem = 'locked' | 'tag_mismatch' | 'bad_statement' | 'nothing_to_replace' | 'changed';
 
 /** Local refusals. Code typos throw EnrollCodeError (bad_length / bad_char / bad_check); relay answers throw ApiError. */
 export class EnrollmentError extends Error {
@@ -116,9 +121,19 @@ export class EnrollmentError extends Error {
   }
 }
 
+/** The relay served a revocation list older than one this phone signed or saw. */
+export class RollbackError extends Error {
+  code = 'revocations_rolled_back';
+  constructor(expected: number, got: number) {
+    super(`the relay served revocation list v${got}, older than v${expected} this phone already has — not trusting it`);
+  }
+}
+
 interface VerifiedEnrollment {
   code: { lookup: string; secret: string; tag: string };
   payload: EnrollPayload;
+  /** the enroll statement's signature: the exact statement the confirm sheet showed */
+  sig: string;
   preview: EnrollmentPreview;
 }
 
@@ -262,7 +277,7 @@ export class OwnerClient {
     };
     const existing = await this.liveAgentNamed(payload.name);
     if (existing) preview.existing = existing;
-    this.verifiedEnrollments.set(parsed.lookup, { code: parsed, payload, preview });
+    this.verifiedEnrollments.set(parsed.lookup, { code: parsed, payload, sig: res.statement.sig, preview });
     return preview;
   }
 
@@ -273,10 +288,23 @@ export class OwnerClient {
   async claimEnrollment(code: string, opts: { replace?: boolean } = {}): Promise<{ agentId: string; name: string }> {
     const parsed = parseEnrollCode(code);
     let verified = this.verifiedEnrollments.get(parsed.lookup);
-    // replacing revokes the old agent: check right before that the code is still valid and unclaimed, so a typo or a
-    // used code never costs the old agent
     const stale = !verified || verified.code.secret !== parsed.secret || verified.code.tag !== parsed.tag;
-    if (stale || opts.replace) {
+    if (opts.replace) {
+      // replacing revokes the old agent, so the person must have seen exactly what gets approved
+      if (stale || !verified) throw new EnrollmentError('changed', 'show the confirm sheet for this code first');
+      const shown = verified;
+      // and right before revoking: the code is still valid and unclaimed (a typo or a used code never costs the old
+      // agent), and it is still the same registration and the same old agent as on the sheet
+      await this.lookupEnrollment(code);
+      verified = this.verifiedEnrollments.get(parsed.lookup);
+      if (
+        !verified ||
+        verified.sig !== shown.sig ||
+        verified.preview.existing?.agentId !== shown.preview.existing?.agentId
+      ) {
+        throw new EnrollmentError('changed', 'this registration changed since you looked — check it again');
+      }
+    } else if (stale) {
       await this.lookupEnrollment(code);
       verified = this.verifiedEnrollments.get(parsed.lookup);
     }
@@ -334,8 +362,7 @@ export class OwnerClient {
   /** Current revocation list version, verified with this phone's key (0 when there is none). */
   private async revocationVersion(): Promise<number> {
     const dir = await this.directory();
-    if (!dir.revocations) return 0;
-    return verifyStatement(dir.revocations, 'revocations', b64(this.identity.signPub)).version;
+    return this.checkedRevocations(dir)?.version ?? 0;
   }
 
   /** A live agent with this name, from certs this owner key signed (never from the relay's word). */
@@ -344,11 +371,14 @@ export class OwnerClient {
     const key = b64(this.identity.signPub);
     const revoked = new Set<string>();
     if (dir.revocations) {
+      let list: RevocationsPayload | null = null;
       try {
-        for (const a of verifyStatement(dir.revocations, 'revocations', key).agents) revoked.add(a);
-      } catch {
+        list = this.checkedRevocations(dir);
+      } catch (e) {
+        if (e instanceof RollbackError) throw e;
         // mid-rotation the list may still carry the old key; a stale hit only offers a replace that revokes again
       }
+      for (const a of list?.agents ?? []) revoked.add(a);
     }
     const now = Date.now();
     for (const s of dir.certs) {
@@ -389,10 +419,32 @@ export class OwnerClient {
     return grant;
   }
 
+  /**
+   * The relay's revocation list, verified, and never older than the highest version this phone signed or saw (a relay
+   * serving an older list would have the next revocation silently drop earlier ones). Raises the remembered version.
+   */
+  private checkedRevocations(dir: Directory, signer = b64(this.identity.signPub)): RevocationsPayload | null {
+    const floor = this.state.revocationVersion ?? 0;
+    if (!dir.revocations) {
+      if (floor > 0) throw new RollbackError(floor, 0);
+      return null;
+    }
+    const r = verifyStatement(dir.revocations, 'revocations', signer);
+    if (r.version < floor) throw new RollbackError(floor, r.version);
+    this.noteRevocationVersion(r.version);
+    return r;
+  }
+
+  private noteRevocationVersion(version: number): void {
+    if (version <= (this.state.revocationVersion ?? 0)) return;
+    this.state.revocationVersion = version;
+    this.save(this.state);
+  }
+
   /** Add agents/grants to the signed revocation list (version + 1). */
   async revoke(input: { agents?: string[]; grants?: string[] }): Promise<Signed<RevocationsPayload>> {
     const dir = await this.directory();
-    let current: RevocationsPayload = {
+    const current: RevocationsPayload = this.checkedRevocations(dir) ?? {
       kind: 'revocations',
       ownerId: this.state.ownerId,
       version: 0,
@@ -400,7 +452,6 @@ export class OwnerClient {
       grants: [],
       issuedAt: 0,
     };
-    if (dir.revocations) current = verifyStatement(dir.revocations, 'revocations', b64(this.identity.signPub));
     const revocations = signStatement(
       {
         kind: 'revocations',
@@ -412,6 +463,8 @@ export class OwnerClient {
       },
       this.identity,
     );
+    // remembered before the relay hears of it: a crash after posting never lets an older list back in
+    this.noteRevocationVersion(revocations.payload.version);
     await this.api.call('POST', '/v1/owner/revocations', { revocations });
     return revocations;
   }
@@ -581,8 +634,10 @@ export class OwnerClient {
       await this.api.call('POST', '/v1/owner/grants', { grant: signStatement(g, this.identity) });
     }
     if (dir.revocations && old(dir.revocations.signer)) {
-      const r = verifyStatement(dir.revocations, 'revocations', dir.revocations.signer);
+      const r = this.checkedRevocations(dir, dir.revocations.signer);
+      if (!r) throw new Error('revocation list missing');
       const revocations = signStatement({ ...r, version: r.version + 1, issuedAt: Date.now() }, this.identity);
+      this.noteRevocationVersion(revocations.payload.version);
       await this.api.call('POST', '/v1/owner/revocations', { revocations });
     }
   }

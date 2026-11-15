@@ -10,7 +10,15 @@ use crate::error::Error;
 use crate::json::{self, Obj, Value, to_js_string};
 use crate::paths::{env_nonempty, home_dir, join};
 
-pub const DEFAULT_SERVER: &str = "https://catcher.bang9.dev";
+/// The relay the CLI talks to unless --server / CATCHER_SERVER says otherwise.
+pub const DEFAULT_SERVER: &str = "https://api.catcher.bang9.dev";
+/// Where registration links point (`<site>/r#<code>`): the static website that hands the code to the app. A separate
+/// origin from the relay; CATCHER_SITE overrides it.
+pub const DEFAULT_SITE: &str = "https://catcher.bang9.dev";
+
+pub fn site() -> String {
+    env_nonempty("CATCHER_SITE").unwrap_or_else(|| DEFAULT_SITE.to_string())
+}
 
 pub fn catcher_home() -> String {
     env_nonempty("CATCHER_HOME").unwrap_or_else(|| join(&[&home_dir(), ".catcher"]))
@@ -150,6 +158,47 @@ pub struct Profile {
     pub dir: String,
 }
 
+/// Longer than any registration step holding the lock (a POST is at most 10 s connect + 300 s + 300 s).
+const LOCK_STALE_MS: f64 = 15.0 * 60.0 * 1000.0;
+
+fn lock_is_stale(path: &str) -> bool {
+    let Ok(text) = fs::read_to_string(path) else {
+        // gone meanwhile (try again) or unreadable: only age can tell
+        return fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age.as_millis() as f64 > LOCK_STALE_MS);
+    };
+    let mut parts = text.split_whitespace();
+    let pid = parts.next().and_then(|p| p.parse::<u32>().ok());
+    let since = parts.next().and_then(|t| t.parse::<f64>().ok());
+    let (Some(pid), Some(since)) = (pid, since) else {
+        // half-written by a process that died between create and write
+        return fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age.as_secs() > 5);
+    };
+    crate::auth::now_ms() - since > LOCK_STALE_MS || !process_alive(pid)
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: signal 0 only checks that the process exists; nothing is delivered
+    let rc = unsafe { libc::kill(pid, 0) };
+    rc == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
+}
+
 /// Held while registering; the lock file goes when this drops.
 pub struct ProfileLock {
     path: String,
@@ -240,8 +289,10 @@ impl Profile {
         }
     }
 
-    /// Exclusive lock for creating or finalising a registration. Waits up to `wait_ms` for another holder; a lock
-    /// older than a minute is from a crashed process and is taken over.
+    /// Exclusive lock for creating or finalising a registration (an atomic create-new of register.lock holding the
+    /// owner's pid and start time). Waits up to `wait_ms` for another holder. A lock whose process is gone, or that is
+    /// older than any registration step can take (network timeouts included), is from a crashed process and is
+    /// taken over.
     pub fn lock(&self, wait_ms: u64) -> Result<ProfileLock, Error> {
         ensure_dir(&self.dir)?;
         let path = self.path("register.lock");
@@ -253,16 +304,13 @@ impl Profile {
                 .open(&path)
             {
                 Ok(mut f) => {
-                    let _ = f.write_all(std::process::id().to_string().as_bytes());
+                    let _ = f.write_all(
+                        format!("{} {}", std::process::id(), crate::auth::now_ms()).as_bytes(),
+                    );
                     return Ok(ProfileLock { path });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let stale = fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|t| t.elapsed().ok())
-                        .is_some_and(|age| age.as_secs() > 60);
-                    if stale {
+                    if lock_is_stale(&path) {
                         let _ = fs::remove_file(&path);
                         continue;
                     }

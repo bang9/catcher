@@ -4,6 +4,7 @@
 //   CATCHER_GOOGLE_SERVICES — path to google-services.json for Android push (FCM), gitignored
 import type { ExpoConfig } from 'expo/config';
 import pkg from './package.json';
+import { SITE_HOST } from './src/lib/site.ts';
 
 const BUNDLE_ID = 'dev.bang9.catcher';
 
@@ -20,6 +21,8 @@ const config: ExpoConfig = {
     bundleIdentifier: BUNDLE_ID,
     supportsTablet: false,
     infoPlist: { NSFaceIDUsageDescription: faceId },
+    // verified https links are the main way in: agents print <SITE_URL>/r#<code>; only this app can open them
+    associatedDomains: [`applinks:${SITE_HOST}`],
   },
   android: {
     package: BUNDLE_ID,
@@ -27,6 +30,14 @@ const config: ExpoConfig = {
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
+    ],
+    intentFilters: [
+      {
+        action: 'VIEW',
+        autoVerify: true,
+        data: [{ scheme: 'https', host: SITE_HOST, pathPrefix: '/r' }],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
     ],
   },
   plugins: [

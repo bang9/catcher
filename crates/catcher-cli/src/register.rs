@@ -72,7 +72,8 @@ impl Pending {
         .code)
     }
     pub fn link(&self) -> Result<String, Error> {
-        Ok(enroll_link(&self.server(), &self.code()?))
+        // the website, never the relay: the relay must not be the page that receives the code
+        Ok(enroll_link(&crate::store::site(), &self.code()?))
     }
     pub fn expired(&self) -> bool {
         self.expires_at() <= now_ms()
@@ -103,6 +104,7 @@ fn fresh(profile: &Profile, input: &NewRegistration) -> Result<Pending, Error> {
     let seed = random_bytes(32);
     let id = identity_from_seed(&seed)?;
     let (lookup, secret) = enroll_parts(&random_bytes(10))?;
+    let now = now_ms();
     let raw = Obj::new()
         .with("name", input.name)
         .with("server", input.server.trim_end_matches('/'))
@@ -112,8 +114,8 @@ fn fresh(profile: &Profile, input: &NewRegistration) -> Result<Pending, Error> {
         .with("secret", secret)
         .with("device", input.device)
         .with("provider", input.provider)
-        .with("issuedAt", now_ms())
-        .with("expiresAt", now_ms() + crate::enroll::ENROLL_TTL_MS)
+        .with("issuedAt", now)
+        .with("expiresAt", now + crate::enroll::ENROLL_TTL_MS)
         .with("posted", false);
     let pending = Pending { raw };
     profile.save_pending(&pending.raw)?;
@@ -140,10 +142,8 @@ fn post(profile: &Profile, p: &mut Pending) -> Result<(), Error> {
     for attempt in 0..=LOOKUP_RETRIES {
         let body = Value::Obj(Obj::new().with("statement", statement(p, &id)?));
         match api.call("POST", "/v1/enroll", Some(&body), false) {
-            Ok(res) => {
-                if let Some(at) = res.get("expiresAt").and_then(num) {
-                    p.raw.set("expiresAt", Value::Num(at));
-                }
+            Ok(_) => {
+                // the claim window is ours: issuedAt + TTL, whatever expiry the relay reports
                 p.raw.set("posted", Value::Bool(true));
                 profile.save_pending(&p.raw)?;
                 return Ok(());
@@ -152,6 +152,11 @@ fn post(profile: &Profile, p: &mut Pending) -> Result<(), Error> {
                 let (lookup, secret) = enroll_parts(&random_bytes(10))?;
                 p.raw.set("lookup", lookup.into());
                 p.raw.set("secret", secret.into());
+                // a new lookup is a new statement: its time (and so its claim window) starts now
+                let now = now_ms();
+                p.raw.set("issuedAt", Value::Num(now));
+                p.raw
+                    .set("expiresAt", Value::Num(now + crate::enroll::ENROLL_TTL_MS));
                 profile.save_pending(&p.raw)?;
             }
             Err(e) => return Err(e),
@@ -165,7 +170,7 @@ fn post(profile: &Profile, p: &mut Pending) -> Result<(), Error> {
 pub enum Start {
     /// a new code, just posted
     New(Pending),
-    /// the code from an earlier run, still open
+    /// the code from an earlier run: still open, or expired here but not yet confirmed unclaimed by the relay
     Again(Pending),
     /// this profile already has a registered agent
     Registered(AgentState),
@@ -185,14 +190,12 @@ pub fn start(profile: &Profile, input: Option<&NewRegistration>) -> Result<Start
         profile.delete_pending()?;
         pending = None;
     }
-    if pending.as_ref().is_some_and(Pending::expired) {
-        profile.delete_pending()?;
-        pending = None;
-    }
     match (pending, input) {
+        // expired here: it may still have been claimed in time (or posted with the answer lost), so the caller asks
+        // the relay before anything is dropped
+        (Some(p), _) if p.expired() => Ok(Start::Again(p)),
         (Some(mut p), _) => {
-            let was_posted = p.posted();
-            if !was_posted {
+            if !p.posted() {
                 post(profile, &mut p)?;
                 return Ok(Start::New(p));
             }
@@ -233,8 +236,33 @@ pub fn poll(p: &Pending) -> Result<Poll, Error> {
     }
 }
 
-/// Steps 1–6 for a claim the relay served. Takes the lock; a second finaliser finds state.json and stops.
-pub fn finalise(profile: &Profile, claim: &Value, cert: &Value) -> Result<AgentState, Error> {
+fn changed_meanwhile() -> Error {
+    Error::cli(
+        "the registration changed while this command ran (another catcher process started a new one) — run: catcher register --wait",
+        6,
+    )
+}
+
+/// Forget the registration for `lookup` once the relay said it is gone — but only if it is still the one in
+/// pending.json (another process may have started a new one meanwhile).
+pub fn drop_pending(profile: &Profile, lookup: &str) -> Result<(), Error> {
+    let _lock = profile.lock(LOCK_WAIT_MS)?;
+    if profile
+        .load_pending()
+        .is_some_and(|raw| Pending { raw }.lookup() == lookup)
+    {
+        profile.delete_pending()?;
+    }
+    Ok(())
+}
+
+/// Steps 1–6 for a claim the relay served for `lookup`. Takes the lock; a second finaliser finds state.json and stops.
+pub fn finalise(
+    profile: &Profile,
+    lookup: &str,
+    claim: &Value,
+    cert: &Value,
+) -> Result<AgentState, Error> {
     let _lock = profile.lock(LOCK_WAIT_MS)?;
     if profile.exists() {
         return profile.load();
@@ -246,6 +274,10 @@ pub fn finalise(profile: &Profile, claim: &Value, cert: &Value) -> Result<AgentS
         ));
     };
     let p = Pending { raw };
+    if p.lookup() != lookup {
+        // the claim was fetched for a registration that is no longer the current one: judge nothing, drop nothing
+        return Err(changed_meanwhile());
+    }
     let id = p.identity()?;
     // 1–4: owner-signed, for this code and these keys, and it carries this code's secret
     let by = match open_claim(claim, &p.agent_id(), &p.lookup(), &p.secret(), &id) {
@@ -309,22 +341,17 @@ pub fn finalise_once(profile: &Profile) -> Result<AgentState, Error> {
             6,
         )
     };
-    if !p.posted() || p.expired() {
-        if p.expired() {
-            return Err(Error::cli(
+    // always ask the relay: a claim that arrived in time finalises even after the code expired here
+    match poll(&p) {
+        Ok(Poll::Claimed { claim, cert }) => finalise(profile, &p.lookup(), &claim, &cert),
+        Ok(Poll::Expired) if p.posted() || p.expired() => {
+            drop_pending(profile, &p.lookup())?;
+            Err(Error::cli(
                 "not registered — the registration code expired. Run: catcher register --name <name>",
                 6,
-            ));
+            ))
         }
-        return Err(not_yet(&p));
-    }
-    match poll(&p) {
-        Ok(Poll::Claimed { claim, cert }) => finalise(profile, &claim, &cert),
-        Ok(Poll::Expired) => Err(Error::cli(
-            "not registered — the registration code expired. Run: catcher register --name <name>",
-            6,
-        )),
-        Ok(Poll::Waiting) | Err(_) => Err(not_yet(&p)),
+        Ok(_) | Err(_) => Err(not_yet(&p)),
     }
 }
 

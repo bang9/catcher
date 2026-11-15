@@ -31,6 +31,8 @@ export interface AppState {
   syncError: string | null;
   lastSyncAt: number | null;
   live: LiveState;
+  /** a registration code that arrived by link, waiting until the owner can confirm it */
+  heldEnrollCode: string | null;
 }
 
 let state: AppState = {
@@ -48,6 +50,7 @@ let state: AppState = {
   syncError: null,
   lastSyncAt: null,
   live: 'off',
+  heldEnrollCode: null,
 };
 
 const listeners = new Set<() => void>();

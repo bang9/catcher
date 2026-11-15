@@ -482,7 +482,11 @@ test('re-running register shows the same code; a different name starts over', as
   const plain = await cli(relay, 'again', ['register']);
   assert.equal(plain.code, 0);
   assert.ok(plain.out.includes(first.code));
-  assert.ok(plain.out.includes(`${relay.server}/r#${first.code}`));
+  // the link points at the website, never at the relay
+  assert.ok(plain.out.includes(`https://catcher.bang9.dev/r#${first.code}`));
+  assert.ok(!plain.out.includes(`${relay.server}/r#`));
+  const site = await cli(relay, 'again', ['register', '--json'], { env: { CATCHER_SITE: 'https://example.test/' } });
+  assert.equal(site.json.link, `https://example.test/r#${first.code}`);
   // the seed and the secret part never appear on their own
   const pending = JSON.parse(readFileSync(join(profileDir('again'), 'pending.json'), 'utf8'));
   assert.ok(!plain.out.includes(pending.seed) && !plain.err.includes(pending.seed));

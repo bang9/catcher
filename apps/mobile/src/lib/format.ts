@@ -80,7 +80,8 @@ export function isOnline(lastSeenAt: number | null, now = Date.now()): boolean {
   return lastSeenAt !== null && now - lastSeenAt < 5 * 60_000;
 }
 
-export const DEFAULT_SERVER = 'https://catcher.bang9.dev';
+/** The relay. The website (registration links, app-link files) is separate: see SITE_URL in site.ts. */
+export const DEFAULT_SERVER = 'https://api.catcher.bang9.dev';
 
 /** https anywhere; plain http only for this machine / the Android emulator host (development). */
 export function normalizeServer(input: string): string | null {

@@ -1,12 +1,13 @@
 // Root: load the owner key, then show onboarding or the app. Realtime and push run only once onboarded.
 
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
 import { t } from '@/i18n';
+import { releaseHeldCode } from '@/state/enroll';
 import { configureNotifications, listenForPushes, refreshPushToken } from '@/state/push';
 import { followAppState } from '@/state/realtime';
 import { useApp } from '@/state/store';
@@ -27,6 +28,7 @@ export default function RootLayout() {
   const scheme = useColorScheme();
   const ready = useApp((s) => s.ready);
   const signedIn = useApp((s) => s.owner !== null && s.onboarded);
+  const heldCode = useApp((s) => s.heldEnrollCode);
 
   useEffect(() => {
     bootstrap()
@@ -49,6 +51,17 @@ export default function RootLayout() {
     };
   }, [signedIn]);
 
+  // a registration link opened before (or during) onboarding waits here; it only opens the confirm sheet
+  useEffect(() => {
+    if (!signedIn || !heldCode) return;
+    // after this render, so the navigator is mounted; the code is released only once the sheet is on its way
+    const id = setTimeout(() => {
+      router.push({ pathname: '/enroll', params: { code: heldCode } });
+      releaseHeldCode();
+    }, 0);
+    return () => clearTimeout(id);
+  }, [signedIn, heldCode]);
+
   if (!ready) return null;
 
   return (
@@ -64,11 +77,11 @@ export default function RootLayout() {
       >
         <Stack.Protected guard={signedIn} redirectTo="/welcome">
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="registration/[agentId]" options={{ title: t('kind.registration') }} />
+          <Stack.Screen name="enroll" options={{ title: '', presentation: 'modal' }} />
           <Stack.Screen name="request/[id]" options={{ title: '' }} />
           <Stack.Screen name="chat/[agentId]" options={{ title: '' }} />
           <Stack.Screen name="agent/[agentId]" options={{ title: '' }} />
-          <Stack.Screen name="add-agent" options={{ title: t('add.title') }} />
+          <Stack.Screen name="add-agent" options={{ title: '' }} />
           <Stack.Screen name="grant-new" options={{ title: t('agent.newGrant'), presentation: 'modal' }} />
           <Stack.Screen name="reveal" options={{ title: t('reveal.title') }} />
           <Stack.Screen name="rotate" options={{ title: t('settings.rotate') }} />

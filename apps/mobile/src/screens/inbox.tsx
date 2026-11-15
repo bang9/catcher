@@ -1,8 +1,7 @@
-// Everything waiting on the owner: registrations, requests from agents, held agent → agent messages.
+// Everything waiting on the owner: requests from agents and held agent → agent messages.
 // Each row opens a screen with the one decision to make.
 
 import { router } from 'expo-router';
-import type { AgentSummary } from '@catcher/protocol';
 import { t } from '@/i18n';
 import { remaining } from '@/lib/format';
 import type { LocalItem } from '@/lib/db';
@@ -11,24 +10,6 @@ import { useApp } from '@/state/store';
 import { sync } from '@/state/sync';
 import { Button, Empty, Group, Pill, Row, Screen, SectionTitle } from '@/ui/kit';
 import { kindKey, preview, SyncBanner } from './parts';
-
-function RegistrationRows({ agents }: { agents: AgentSummary[] }) {
-  return (
-    <Group>
-      {agents.map((a, i) => (
-        <Row
-          key={a.agentId}
-          first={i === 0}
-          testID={`inbox-registration-${a.name}`}
-          title={a.name}
-          subtitle={`${a.provider} · ${a.device}`}
-          accessory={<Pill label={t('kind.registration')} tone="info" />}
-          onPress={() => router.push({ pathname: '/registration/[agentId]', params: { agentId: a.agentId } })}
-        />
-      ))}
-    </Group>
-  );
-}
 
 function subtitle(item: LocalItem, names: (id: string) => string): string {
   const parts = [preview(item, names)];
@@ -70,7 +51,7 @@ export function InboxScreen() {
     return byId.get(id) ?? id;
   };
 
-  const hasAgents = agents.some((a) => a.status === 'active' || a.status === 'pending');
+  const hasAgents = agents.some((a) => a.status === 'active');
   let empty = null;
   if (pending.count === 0 && hasAgents) empty = <Empty title={t('inbox.emptyTitle')} body={t('inbox.emptyBody')} />;
   if (pending.count === 0 && !hasAgents) {
@@ -88,12 +69,6 @@ export function InboxScreen() {
   return (
     <Screen testID="inbox" onRefresh={sync}>
       <SyncBanner />
-      {pending.registrations.length > 0 && (
-        <>
-          <SectionTitle>{t('inbox.registrations')}</SectionTitle>
-          <RegistrationRows agents={pending.registrations} />
-        </>
-      )}
       {pending.requests.length > 0 && (
         <>
           <SectionTitle>{t('inbox.requests')}</SectionTitle>

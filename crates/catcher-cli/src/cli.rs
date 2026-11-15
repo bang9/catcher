@@ -35,6 +35,17 @@ pub fn stdout(text: &str) {
     let _ = o.flush();
 }
 
+/// Write to stdout and report a failure (closed pipe, full disk): delivery is only done once this succeeded.
+fn deliver(text: &str) -> Result<()> {
+    let mut o = std::io::stdout().lock();
+    o.write_all(text.as_bytes())
+        .and_then(|()| o.flush())
+        .map_err(|_| Error::cli(STDOUT_CLOSED, 1))
+}
+
+const STDOUT_CLOSED: &str =
+    "stdout is closed — stopping (unacked messages come again on the next run)";
+
 pub fn stderr(text: &str) {
     let mut e = std::io::stderr().lock();
     let _ = e.write_all(text.as_bytes());
@@ -128,6 +139,22 @@ fn ack_all(ctx: &Ctx, c: &AgentClient, ids: Vec<Value>) -> Result<Value> {
     ctx.profile
         .mark_acked(&ids.iter().map(join_text).collect::<Vec<_>>())?;
     Ok(n)
+}
+
+/// A message id as the channel may show it: only one shaped like an envelope id (anything else a relay or sender made
+/// up is not echoed).
+fn shown_id(id: Option<&Value>) -> Option<&str> {
+    match id {
+        Some(Value::Str(s)) if crate::agent::is_envelope_id(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Ids of dropped messages to clear from the mailbox (a malformed id cannot be in it anyway).
+fn rejected_ids(list: &[crate::agent::Rejected]) -> Vec<Value> {
+    list.iter()
+        .filter_map(|r| shown_id(r.id.as_ref()).map(Value::from))
+        .collect()
 }
 
 fn ids_of(list: impl Iterator<Item = Option<Value>>) -> Vec<Value> {
@@ -414,7 +441,7 @@ fn cmd_register(ctx: &Ctx) -> Result<i32> {
             Start::New(p) => break p,
             Start::Again(p) => match register::poll(&p)? {
                 Poll::Claimed { claim, cert } => {
-                    let state = register::finalise(&ctx.profile, &claim, &cert)?;
+                    let state = register::finalise(&ctx.profile, &p.lookup(), &claim, &cert)?;
                     refresh_after_registration(ctx, &state);
                     registered(ctx, &state);
                     return Ok(0);
@@ -424,7 +451,7 @@ fn cmd_register(ctx: &Ctx) -> Result<i32> {
                     break p;
                 }
                 Poll::Expired => {
-                    ctx.profile.delete_pending()?;
+                    register::drop_pending(&ctx.profile, &p.lookup())?;
                     if v.flag("wait") {
                         return Err(expired_error());
                     }
@@ -474,13 +501,13 @@ fn wait_for_claim(ctx: &Ctx, p: &Pending, timeout: Option<&str>) -> Result<i32> 
     loop {
         match register::poll(p) {
             Ok(Poll::Claimed { claim, cert }) => {
-                let state = register::finalise(&ctx.profile, &claim, &cert)?;
+                let state = register::finalise(&ctx.profile, &p.lookup(), &claim, &cert)?;
                 refresh_after_registration(ctx, &state);
                 registered(ctx, &state);
                 return Ok(0);
             }
             Ok(Poll::Expired) => {
-                ctx.profile.delete_pending()?;
+                register::drop_pending(&ctx.profile, &p.lookup())?;
                 return Err(expired_error());
             }
             Ok(Poll::Waiting) => {}
@@ -506,8 +533,8 @@ fn wait_for_claim(ctx: &Ctx, p: &Pending, timeout: Option<&str>) -> Result<i32> 
         }
         let now = now_ms();
         if now >= deadline {
+            // kept until the relay confirms it was not claimed: a claim that made it in time still finalises later
             if p.expired() {
-                ctx.profile.delete_pending()?;
                 return Err(expired_error());
             }
             return Err(Error::cli(
@@ -1066,9 +1093,11 @@ fn wait_and_print(ctx: &Ctx, c: &mut AgentClient, id: &str, timeout_sec: f64) ->
         });
     } else {
         let deadline = now_ms() + timeout_sec * 1000.0;
+        // ids already looked at: something else pointing at this request can't keep the wait busy
+        let mut tried: HashSet<String> = HashSet::new();
         loop {
             let left = (deadline - now_ms()).max(0.0);
-            let Some(r) = c.wait_for(id, left)? else {
+            let Some(r) = c.wait_for(id, left, &tried)? else {
                 break;
             };
             if matches(r.kind.as_ref(), r.reference.as_ref(), r.from_id.as_ref()) {
@@ -1076,6 +1105,7 @@ fn wait_and_print(ctx: &Ctx, c: &mut AgentClient, id: &str, timeout_sec: f64) ->
                 break;
             }
             // something else answering this id (wrong sender or type): drop it and keep waiting
+            tried.insert(r.id_str());
             ack_all(ctx, c, ids_of(std::iter::once(r.id.clone())))?;
             if now_ms() >= deadline {
                 break;
@@ -1207,7 +1237,12 @@ fn channel_rejected(r: &crate::agent::Rejected) -> Value {
     Value::Obj(
         Obj::new()
             .with("t", "rejected")
-            .with("id", r.id.clone().unwrap_or(Value::Null))
+            .with(
+                "id",
+                shown_id(r.id.as_ref())
+                    .map(Value::from)
+                    .unwrap_or(Value::Null),
+            )
             .with("code", r.code.as_str()),
     )
 }
@@ -1231,38 +1266,41 @@ fn cmd_inbox(ctx: &Ctx) -> Result<i32> {
     }
     let seen_before = received_ids(ctx)?;
     record_received(ctx, &received)?;
-    // never surface messages that failed verification; clear them so they do not block the mailbox
-    ack_all(ctx, &c, ids_of(rejected.iter().map(|r| r.id.clone())))?;
-    if v.flag("ack") {
-        ack_all(ctx, &c, ids_of(received.iter().map(|r| r.id.clone())))?;
-    }
+    let mut text = String::new();
     if ctx.json {
         let owner_id = c.state.owner_id();
         for r in &received {
             let again = seen_before.contains(&r.id_str());
-            stdout(&format!(
+            text.push_str(&format!(
                 "{}\n",
                 ndjson(&channel_message(r, &owner_id, again))
             ));
         }
         for r in &rejected {
-            stdout(&format!("{}\n", ndjson(&channel_rejected(r))));
+            text.push_str(&format!("{}\n", ndjson(&channel_rejected(r))));
         }
-        return Ok(0);
+    } else {
+        if received.is_empty() {
+            text.push_str("inbox empty\n");
+        }
+        for r in &received {
+            text.push_str(&format!("{}\n\n", show(r)));
+        }
+        for r in &rejected {
+            stderr(&format!(
+                "dropped {} from {}: {}\n",
+                to_js_string(r.id.as_ref()),
+                to_js_string(r.from.as_ref()),
+                r.reason
+            ));
+        }
     }
-    if received.is_empty() {
-        stdout("inbox empty\n");
-    }
-    for r in &received {
-        stdout(&format!("{}\n\n", show(r)));
-    }
-    for r in &rejected {
-        stderr(&format!(
-            "dropped {} from {}: {}\n",
-            to_js_string(r.id.as_ref()),
-            to_js_string(r.from.as_ref()),
-            r.reason
-        ));
+    // acked only once printed: a closed stdout leaves everything for the next run
+    deliver(&text)?;
+    // never surface messages that failed verification; clear them so they do not block the mailbox
+    ack_all(ctx, &c, rejected_ids(&rejected))?;
+    if v.flag("ack") {
+        ack_all(ctx, &c, ids_of(received.iter().map(|r| r.id.clone())))?;
     }
     Ok(0)
 }
@@ -1477,7 +1515,7 @@ fn watch_pass(
         for r in &page.rejected {
             emitted.insert(to_js_string(r.id.as_ref()));
             if ctx.json {
-                stdout(&format!("{}\n", ndjson(&channel_rejected(r))));
+                deliver(&format!("{}\n", ndjson(&channel_rejected(r))))?;
             } else {
                 stderr(&format!(
                     "dropped {} from {}: {}\n",
@@ -1487,17 +1525,18 @@ fn watch_pass(
                 ));
             }
         }
-        ack_all(ctx, c, ids_of(page.rejected.iter().map(|r| r.id.clone())))?;
+        ack_all(ctx, c, rejected_ids(&page.rejected))?;
         for r in &page.received {
             let id = r.id_str();
             emitted.insert(id.clone());
             let line = ndjson(&channel_message(r, &owner_id, seen_before.contains(&id)));
             let done = match &o.exec {
                 None => {
+                    // a failed write stops watch before anything is acked
                     if ctx.json {
-                        stdout(&format!("{line}\n"));
+                        deliver(&format!("{line}\n"))?;
                     } else {
-                        stdout(&format!("{}\n\n", show(r)));
+                        deliver(&format!("{}\n\n", show(r)))?;
                     }
                     o.auto_ack
                 }
@@ -1545,6 +1584,10 @@ fn cmd_watch(ctx: &Ctx) -> Result<i32> {
     let mut drain = |c: &mut AgentClient| {
         if let Err(e) = watch_pass(ctx, c, &mut emitted, &o) {
             stderr(&format!("catcher watch: {}\n", e.message()));
+            // nobody reads us any more: stop rather than drain the mailbox into nothing
+            if e.message() == STDOUT_CLOSED {
+                std::process::exit(e.exit_code());
+            }
         }
     };
     drain(&mut c);

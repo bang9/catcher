@@ -23,7 +23,7 @@ import {
 import {
   bad,
   type Caller,
-  clientIp,
+  clientSource,
   type Env,
   HttpError,
   json,
@@ -39,6 +39,13 @@ import { getOwner, parseOrNull } from './store.ts';
 const MAX_ENROLL_BODY = 2048;
 /** unclaimed, unexpired registrations across the whole relay */
 const MAX_LIVE_ENROLLMENTS = 5000;
+/** unclaimed, unexpired registrations from one source (an IPv4 address or an IPv6 /64) */
+const MAX_LIVE_PER_SOURCE = 20;
+/**
+ * An expired code's lookup stays reserved this long for the key that made it: someone who saw the code cannot register
+ * their own key under the same lookup (with a tag ground to match) once it expires.
+ */
+const TOMBSTONE_MS = 86_400_000;
 /** a claimed row stays until the agent has fetched its claim: 24 h after its first call, 30 days at most */
 const CLAIMED_KEEP_MS = 30 * 86_400_000;
 const CLAIMED_GRACE_MS = 86_400_000;
@@ -86,7 +93,8 @@ function uniqueViolation(e: unknown): boolean {
 
 /** POST /v1/enroll — unauthenticated; the statement is signed by the key it registers. */
 export async function enroll(env: Env, req: Request, body: Uint8Array, ctx: ExecutionContext): Promise<Response> {
-  await limitOrThrow(env.ENROLL_LIMIT, `enroll:${clientIp(req)}`);
+  const source = clientSource(req);
+  await limitOrThrow(env.ENROLL_LIMIT, `enroll:${source}`);
   if (body.length >= MAX_ENROLL_BODY) throw new HttpError(400, 'too_long', 'registration request is too large');
   const { statement } = parseJson<EnrollRequest>(body);
   const p = statement?.payload;
@@ -115,8 +123,13 @@ export async function enroll(env: Env, req: Request, body: Uint8Array, ctx: Exec
     bad('statement time is too far from now (check the device clock)', 'stale');
   }
   const agentId = agentIdFor(p.signPub);
-  // housekeeping on the way: expired codes free their lookup and their slot
-  later(ctx, env.DB.prepare('DELETE FROM enrollments WHERE claimed_at IS NULL AND expires_at <= ?').bind(now).run());
+  // housekeeping on the way: codes past their tombstone free their lookup
+  later(
+    ctx,
+    env.DB.prepare('DELETE FROM enrollments WHERE claimed_at IS NULL AND expires_at <= ?')
+      .bind(now - TOMBSTONE_MS)
+      .run(),
+  );
 
   const { results } = await env.DB.prepare('SELECT * FROM enrollments WHERE lookup = ? OR sign_pub = ?')
     .bind(p.lookup, p.signPub)
@@ -130,10 +143,12 @@ export async function enroll(env: Env, req: Request, body: Uint8Array, ctx: Exec
       }
       return json({ agentId: row.agent_id, expiresAt: row.expires_at });
     }
-    if (row.sign_pub === p.signPub && !(row.claimed_at === null && row.expires_at <= now)) {
+    const expired = row.claimed_at === null && row.expires_at <= now;
+    if (row.sign_pub === p.signPub && !expired) {
       throw new HttpError(409, 'key_taken', 'this key is already registered');
     }
-    if (row.lookup === p.lookup && !(row.claimed_at === null && row.expires_at <= now)) {
+    // an expired lookup stays reserved for its own key (tombstone)
+    if (row.lookup === p.lookup && (!expired || row.sign_pub !== p.signPub)) {
       throw new HttpError(409, 'lookup_taken', 'this code is taken — pick another');
     }
   }
@@ -147,16 +162,29 @@ export async function enroll(env: Env, req: Request, body: Uint8Array, ctx: Exec
   if ((live?.n ?? 0) >= MAX_LIVE_ENROLLMENTS) {
     throw new HttpError(503, 'busy', 'too many registrations are waiting right now; try again in a few minutes');
   }
+  const mine = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM enrollments WHERE source = ? AND claimed_at IS NULL AND expires_at > ?',
+  )
+    .bind(source, now)
+    .first<{ n: number }>();
+  if ((mine?.n ?? 0) >= MAX_LIVE_PER_SOURCE) {
+    throw new HttpError(
+      429,
+      'too_many_waiting',
+      'too many registrations from your network are waiting; claim them or let them expire',
+    );
+  }
   const expiresAt = now + ENROLL_TTL_MS;
   try {
     await env.DB.batch([
-      // an expired row under the same lookup or key goes first
+      // this key's own expired row goes first (another key's tombstone stays: the insert then fails)
+      env.DB.prepare('DELETE FROM enrollments WHERE sign_pub = ? AND claimed_at IS NULL AND expires_at <= ?').bind(
+        p.signPub,
+        now,
+      ),
       env.DB.prepare(
-        'DELETE FROM enrollments WHERE (lookup = ? OR sign_pub = ?) AND claimed_at IS NULL AND expires_at <= ?',
-      ).bind(p.lookup, p.signPub, now),
-      env.DB.prepare(
-        'INSERT INTO enrollments (lookup, agent_id, sign_pub, statement, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ).bind(p.lookup, agentId, p.signPub, JSON.stringify(statement), now, expiresAt),
+        'INSERT INTO enrollments (lookup, agent_id, sign_pub, statement, created_at, expires_at, source) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).bind(p.lookup, agentId, p.signPub, JSON.stringify(statement), now, expiresAt, source),
     ]);
   } catch (e) {
     if (!uniqueViolation(e)) throw e;
@@ -176,8 +204,6 @@ export async function enroll(env: Env, req: Request, body: Uint8Array, ctx: Exec
 export async function enrollStatus(env: Env, req: Request, url: URL, lookup: string): Promise<Response> {
   const auth = parseAuth(req.headers.get(AUTH_HEADER));
   if (!auth) throw new HttpError(401, 'unauthenticated', 'missing or malformed x-catcher-auth header');
-  // keyed by the code, not the unverified caller id in the header
-  await limitOrThrow(env.ENROLL_POLL_LIMIT, `poll:${lookup}`);
   const row = await enrollment(env, lookup);
   if (!row) throw new HttpError(404, 'not_found', 'no registration under this code');
   const ok =
@@ -185,6 +211,8 @@ export async function enrollStatus(env: Env, req: Request, url: URL, lookup: str
     (await verifyAuth(auth, row.sign_pub, 'GET', url.pathname + url.search, new Uint8Array()));
   if (!ok)
     throw new HttpError(401, 'unauthenticated', 'request signature is invalid, expired, or not this registration');
+  // counted only once the caller proved it holds the enrolling key
+  await limitOrThrow(env.ENROLL_POLL_LIMIT, `poll:${row.agent_id}`);
   if (row.claimed_at === null) {
     if (row.expires_at <= Date.now()) throw new HttpError(410, 'expired', 'this registration code expired');
     return json({ status: 'waiting', expiresAt: row.expires_at });

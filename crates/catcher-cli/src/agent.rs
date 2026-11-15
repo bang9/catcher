@@ -437,7 +437,11 @@ impl<'p> AgentClient<'p> {
                 .cloned()
                 .ok_or("Cannot read properties of undefined (reading 'core')")?;
             let c = |k: &str| core.get(k).cloned();
+            // set when a step fails for a reason that is not this message's fault (the relay unreachable): the whole
+            // pass stops and nothing is rejected or acked, so the message comes again
+            let mut abort: Option<Error> = None;
             let outcome = (|| -> Result<Received, Error> {
+                check_fields(&core)?;
                 if !is(core.get("to"), &me) {
                     return Err(Error::policy("not_mine", "not addressed to this agent"));
                 }
@@ -482,10 +486,16 @@ impl<'p> AgentClient<'p> {
                     if e.policy_code() != Some("unknown_party") {
                         return Err(e);
                     }
-                    trust = self.trust(TrustOpts {
+                    match self.trust(TrustOpts {
                         refresh: true,
                         known_version: None,
-                    })?;
+                    }) {
+                        Ok(t) => trust = t,
+                        Err(e) => {
+                            abort = Some(e);
+                            return Err(Error::plain("directory refresh failed"));
+                        }
+                    }
                     check_envelope(&trust, &env, release, now_ms())?;
                 }
                 let body = open_envelope(&env, &me, &self.identity)?;
@@ -513,6 +523,9 @@ impl<'p> AgentClient<'p> {
                     body,
                 })
             })();
+            if let Some(e) = abort {
+                return Err(e);
+            }
             match outcome {
                 Ok(r) => received.push(r),
                 Err(e) => rejected.push(Rejected {
@@ -630,16 +643,22 @@ impl<'p> AgentClient<'p> {
             .collect())
     }
 
-    /// Poll for the first answer/reply to `reference`. None on timeout.
+    /// Poll for the first answer/reply to `reference` whose id is not in `skip` (ones already looked at). None on
+    /// timeout.
     pub fn wait_for(
         &mut self,
         reference: &str,
         timeout_ms: f64,
+        skip: &HashSet<String>,
     ) -> Result<Option<Received>, Error> {
         let deadline = now_ms() + timeout_ms;
         let mut interval: f64 = 2000.0;
         loop {
-            if let Some(first) = self.replies(reference)?.into_iter().next() {
+            let fresh = self
+                .replies(reference)?
+                .into_iter()
+                .find(|r| !skip.contains(&r.id_str()));
+            if let Some(first) = fresh {
                 return Ok(Some(first));
             }
             if now_ms() >= deadline {
@@ -651,6 +670,79 @@ impl<'p> AgentClient<'p> {
             interval = (interval * 1.5).round().min(15000.0);
         }
     }
+}
+
+pub fn is_envelope_id(s: &str) -> bool {
+    s.len() == 28
+        && s.starts_with("m_")
+        && s[2..]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase())
+}
+
+fn is_grant_id(s: &str) -> bool {
+    s.len() == 18
+        && s.starts_with("g_")
+        && s[2..]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase())
+}
+
+/// `^[a-z0-9][a-z0-9._:-]{0,63}$`
+fn is_scope(s: &str) -> bool {
+    let b = s.as_bytes();
+    !b.is_empty()
+        && b.len() <= 64
+        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+        && b[1..]
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._:-".contains(c))
+}
+
+fn is_safe_integer(v: Option<&Value>) -> bool {
+    matches!(v, Some(Value::Num(n)) if n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0)
+}
+
+/// The fields the channel line shows as verified must have the shape the protocol gives them: the signature covers
+/// them, but a sender could still sign odd values.
+fn check_fields(core: &Value) -> Result<(), Error> {
+    let bad = |what: &str| {
+        Err(Error::policy(
+            "bad_fields",
+            format!("envelope has a bad {what}"),
+        ))
+    };
+    if !core.str("id").is_some_and(is_envelope_id) {
+        return bad("id");
+    }
+    if core.str("from").is_none() || core.str("to").is_none() {
+        return bad("sender or recipient");
+    }
+    let kind = core.get("type");
+    match (is(kind, "message"), core.get("ref")) {
+        (true, Some(Value::Null)) => {}
+        (false, Some(Value::Str(r))) if is_envelope_id(r) => {}
+        _ => return bad("ref"),
+    }
+    match core.get("scope") {
+        Some(Value::Null) => {}
+        Some(Value::Str(sc)) if is_scope(sc) => {}
+        _ => return bad("scope"),
+    }
+    match core.get("grantId") {
+        Some(Value::Null) => {}
+        Some(Value::Str(g)) if is_grant_id(g) => {}
+        _ => return bad("grant id"),
+    }
+    if !is_safe_integer(core.get("createdAt")) {
+        return bad("createdAt");
+    }
+    if !(matches!(core.get("expiresAt"), Some(Value::Null))
+        || is_safe_integer(core.get("expiresAt")))
+    {
+        return bad("expiresAt");
+    }
+    Ok(())
 }
 
 /// `encodeURIComponent`

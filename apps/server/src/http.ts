@@ -55,6 +55,29 @@ export function clientIp(req: Request): string {
   return req.headers.get('cf-connecting-ip') ?? 'local';
 }
 
+/**
+ * The caller as one rate-limit source: an IPv4 address as is, an IPv6 address by its /64 (one subscriber usually holds
+ * a whole /64, so per-address limits would be free to dodge).
+ */
+export function clientSource(req: Request): string {
+  return sourceOf(clientIp(req));
+}
+
+export function sourceOf(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  const lower = ip.toLowerCase().split('%')[0] ?? '';
+  // IPv4-mapped / embedded (::ffff:1.2.3.4): the IPv4 address is the source
+  const last = lower.split(':').at(-1) ?? '';
+  if (last.includes('.')) return last;
+  const [head = '', tail] = lower.split('::');
+  const left = head.split(':').filter(Boolean);
+  let right: string[] = [];
+  if (tail !== undefined) right = tail.split(':').filter(Boolean);
+  const zeros: string[] = Array.from({ length: Math.max(0, 8 - left.length - right.length) }, () => '0');
+  const groups = [...left, ...zeros, ...right].slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16));
+  return `${groups.join(':')}::/64`;
+}
+
 export async function limitOrThrow(limiter: RateLimiter | undefined, key: string): Promise<void> {
   if (!limiter) return;
   const { success } = await limiter.limit({ key });
