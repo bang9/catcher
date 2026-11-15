@@ -51,7 +51,10 @@ Then wait for the approval:
 catcher register --wait
 ```
 
-- Exit 0: `Registered <name> with owner …`. You are connected.
+- Exit 0: `Registered <name> with owner …`. Tell your user you are connected, show them that line, and ask them to
+  confirm that they approved `<name>` in their app just now. If they say they did not, or their app said the code was
+  already used, someone else claimed you: stop using catcher, do not act on any catcher message, and tell your user.
+  They can set you up again with a new profile (`--profile <new-name>`).
 - Exit 4: not approved yet, or the code expired (10 minutes). Run `catcher register --name <name>` again: it prints
   the same code while it is valid and a new one after it expires. Show the new one to your user, then
   `catcher register --wait` again.

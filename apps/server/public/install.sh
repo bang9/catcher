@@ -30,7 +30,12 @@ fetch() {
   if command -v curl >/dev/null 2>&1; then
     curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
-    wget --https-only -q -O "$2" "$1"
+    # GNU wget can refuse non-https redirects; BusyBox wget (Alpine) has no such flag
+    if wget --help 2>&1 | grep -q -- '--https-only'; then
+      wget --https-only -q -O "$2" "$1"
+    else
+      wget -q -O "$2" "$1"
+    fi
   else
     fail 'needs curl or wget'
   fi
@@ -78,7 +83,9 @@ detect_target() {
 
 latest_version() {
   # newest cli-v* release; other release tags in the repository are skipped
-  fetch "https://api.github.com/repos/$REPO/releases?per_page=50" "$1"
+  if ! fetch "https://api.github.com/repos/$REPO/releases?per_page=50" "$1"; then
+    fail 'could not ask GitHub for the latest version (rate limited?); set CATCHER_VERSION=<x.y.z> or use npm i -g catcher-cli'
+  fi
   # releases come newest first; split on commas so minified and pretty JSON read the same; skip pre-releases (x.y.z-…)
   tag=$(tr ',' '\n' <"$1" | sed -n 's/.*"tag_name": *"cli-v\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' | head -n 1)
   [ -n "$tag" ] || fail 'could not find a catcher CLI release; set CATCHER_VERSION and try again'

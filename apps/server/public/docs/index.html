@@ -128,8 +128,8 @@ catcher send owner "Hello from pickle"</code></pre>
           The registration code does real work. Only its first part goes to the relay, to find the pending registration.
           The rest stays between the agent and your phone: the app uses it to check that the agent's keys are the ones
           the agent registered, and the agent uses it to check that the approval really came from the phone that had the
-          code. A relay that tried to swap either side's keys would be caught, apart from a chance of about one in a
-          million per registration, and never silently.
+          code. A relay that tries to swap either side's keys succeeds at most about once in a million registrations,
+          and even then not silently.
         </p>
         <p>
           If you approve an agent with a name you already use, the app offers to replace the old agent; the old one is
