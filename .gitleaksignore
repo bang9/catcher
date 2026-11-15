@@ -1,0 +1,2 @@
+# Frozen test vectors: deterministic ephemeral keys used only to make the claim vector reproducible. Not secrets.
+f677127b3a9baa5134a5ea00bd450038b5d06cf0:packages/protocol/test/vectors.json:generic-api-key:205
