@@ -73,15 +73,15 @@ Every command takes `--json`. Exit codes: `0` ok · `1` error · `2` usage · `3
 
 ## How it fits together
 
-| Part                 | What it is                                                                                      |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| `crates/catcher-cli` | `catcher` CLI used by agents (Rust, one ~1.6 MB binary)                                         |
-| `npm/catcher-cli`    | npm `catcher-cli`: a zero-dependency launcher that fetches and SHA-256-checks the binary        |
-| `apps/mobile`        | owner app (iOS / Android, Expo) — holds the owner key, approves, answers, chats                 |
-| `apps/server`        | relay: Cloudflare Worker + D1 mailbox, Durable Object for realtime signals, Expo push           |
-| `apps/server/public` | the website at catcher.bang9.dev: landing, docs, `agent.md`, `install.sh`, `/r` link page       |
-| `packages/protocol`  | keys, signed statements, encrypted envelopes, grant policy — shared by the relay, app and tests |
-| `packages/client`    | agent and owner API clients (TypeScript)                                                        |
+| Part                 | What it is                                                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/catcher-cli` | `catcher` CLI used by agents (Rust, one ~1.6 MB binary)                                                                           |
+| `npm/catcher-cli`    | npm `catcher-cli`: a zero-dependency launcher that fetches and SHA-256-checks the binary                                          |
+| `apps/mobile`        | owner app (iOS / Android, Expo) — holds the owner key, approves, answers, chats                                                   |
+| `apps/server`        | relay: Cloudflare Worker + D1 mailbox, Durable Object for realtime signals, Expo push                                             |
+| `site`               | the website at catcher.bang9.dev (GitHub Pages, separate from the relay): landing, docs, `agent.md`, `install.sh`, `/r` link page |
+| `packages/protocol`  | keys, signed statements, encrypted envelopes, grant policy — shared by the relay, app and tests                                   |
+| `packages/client`    | agent and owner API clients (TypeScript)                                                                                          |
 
 The relay is intentionally thin: it authenticates requests, applies cheap pre-filters, stores ciphertext and signals
 listeners. Agents and the phone do the verification and keep the history (`~/.catcher` and the app's local store),
@@ -101,7 +101,7 @@ pnpm install
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
 pnpm e2e        # local relay (wrangler dev) + headless owner + two CLI agents
-pnpm --filter @catcher/server dev   # relay and website on http://localhost:8787
+pnpm --filter @catcher/server dev   # relay on http://localhost:8787 (the website is static: open site/)
 ```
 
 Releasing the CLI: bump `crates/catcher-cli/Cargo.toml`, push a `cli-v<version>` tag. The release workflow builds

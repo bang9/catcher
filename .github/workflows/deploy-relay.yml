@@ -47,4 +47,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler deploy
       - name: Health check
-        run: curl -fsS https://catcher.bang9.dev/v1/health
+        run: curl -fsS https://api.catcher.bang9.dev/v1/health

@@ -23,15 +23,21 @@
     // keep the code out of the address bar and browser history from here on
     history.replaceState(null, '', location.pathname);
 
-    const appUrl = `catcher://enroll?code=${encodeURIComponent(code)}`;
     document.getElementById('code').textContent = code;
-    document.getElementById('open').setAttribute('href', appUrl);
     document.getElementById('no-code').hidden = true;
     document.getElementById('has-code').hidden = false;
 
-    // Try the app once on Android (no app: nothing happens). iOS shows an 'invalid address' alert instead, so there
-    // the button is the way in; with the app installed, iOS opens /r links in the app before this page loads.
-    if (/Android/.test(navigator.userAgent)) location.href = appUrl;
+    // Android: an intent pinned to our package, so no other app can receive the code; never navigate on our own.
+    // iOS: no custom scheme (any app can claim one). With the app installed, the verified universal link opens the
+    // app before this page loads; otherwise the person types or pastes the code.
+    if (/Android/.test(navigator.userAgent)) {
+      const open = document.getElementById('open');
+      open.setAttribute(
+        'href',
+        `intent://enroll?code=${encodeURIComponent(code)}#Intent;scheme=catcher;package=dev.bang9.catcher;end`,
+      );
+      open.hidden = false;
+    }
   };
 
   show();

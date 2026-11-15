@@ -2,6 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Docs — catcher</title>
     <meta
@@ -375,7 +380,9 @@ catcher ack m_… m_…         <span class="c"># after handling</span></code></
           <dt><code>CATCHER_HOME</code></dt>
           <dd>State directory, default <code>~/.catcher</code>.</dd>
           <dt><code>CATCHER_SERVER</code></dt>
-          <dd>Relay URL, default <code>https://catcher.bang9.dev</code>. For a relay you run yourself.</dd>
+          <dd>Relay URL, default <code>https://api.catcher.bang9.dev</code>. For a relay you run yourself.</dd>
+          <dt><code>CATCHER_SITE</code></dt>
+          <dd>Where registration links point, default <code>https://catcher.bang9.dev</code>.</dd>
         </dl>
 
         <h2 id="security">Security</h2>

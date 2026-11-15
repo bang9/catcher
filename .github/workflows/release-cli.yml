@@ -5,7 +5,7 @@
 #   release → SHA256SUMS, build provenance attestations, a public GitHub Release (the only job that can write)
 #   npm     → the catcher-cli launcher (npm/catcher-cli) via npm trusted publishing (OIDC), bound to this workflow file
 #             and the "npm" environment. No npm token is stored anywhere; provenance is attached.
-# Release asset names are a contract with apps/server/public/install.sh and npm/catcher-cli: catcher-<target>[.exe]
+# Release asset names are a contract with site/install.sh and npm/catcher-cli: catcher-<target>[.exe]
 # (raw binaries), catcher-<target>.tar.gz / .zip (with LICENSE and README), SHA256SUMS.
 name: release cli
 
