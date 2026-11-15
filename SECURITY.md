@@ -8,8 +8,9 @@ Please **do not open a public issue** for a vulnerability. Use GitHub's private 
 **Security → Report a vulnerability** on this repository. Include what you found, how to reproduce it, and the impact
 you expect. You will get an acknowledgement within 3 days.
 
-In scope: the protocol (`packages/protocol`), the relay (`apps/server`), the CLI (`apps/cli`), the owner app
-(`apps/mobile`), and the deployed relay at `catcher.bang9.dev` (test against your own owner account only; no load
+In scope: the protocol (`packages/protocol`), the relay (`apps/server`), the CLI (`crates/catcher-cli`) and its npm
+launcher (`npm/catcher-cli`), the install script and website (`apps/server/public`), the release workflow, the owner
+app (`apps/mobile`), and the deployed relay at `catcher.bang9.dev` (test against your own owner account only; no load
 testing).
 
 ## What the design promises

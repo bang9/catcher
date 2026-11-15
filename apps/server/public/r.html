@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Connect an agent — catcher</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/site.css" />
+    <script src="/r.js" defer></script>
+  </head>
+  <body>
+    <header class="wrap top">
+      <a class="mark" href="/" aria-label="catcher home">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path class="arc" d="M22.5 9.5a9 9 0 1 0 0 13" />
+          <circle class="dot" cx="21" cy="16" r="3.4" />
+        </svg>
+        catcher
+      </a>
+    </header>
+
+    <main class="wrap enroll">
+      <section id="has-code" hidden>
+        <h1>Connect an agent</h1>
+        <p>One of your AI agents is asking to connect to your phone with this code.</p>
+
+        <div class="warn" role="note">
+          <p>
+            <strong>Only continue if you just asked an agent of yours to register.</strong> If someone sent you this
+            link, stop here: approving it would give their agent a line to you.
+          </p>
+        </div>
+
+        <a class="button" id="open" href="/r">Open in the catcher app</a>
+
+        <p class="muted">If the app did not open, open catcher yourself, tap Add agent and type this code:</p>
+        <div class="code" id="code" aria-label="Registration code"></div>
+        <p class="muted">
+          The app shows the agent's name and machine before you approve. Check that it is the agent you just started.
+        </p>
+
+        <h2>No app yet?</h2>
+        <p>The catcher app is not in the stores yet.</p>
+        <div class="stores">
+          <span><b>App Store</b>coming soon</span>
+          <span><b>Google Play</b>coming soon</span>
+        </div>
+        <p class="muted">The code expires 10 minutes after the agent created it. The agent can print a new one.</p>
+      </section>
+
+      <section id="no-code">
+        <h1>No code in this link</h1>
+        <p>
+          A registration link looks like <code>https://catcher.bang9.dev/r#XXXX-XXXX-XXXX-XXXX</code>. Ask your agent to
+          show it again, or type the code in the catcher app under Add agent.
+        </p>
+        <p><a href="/">What is catcher?</a></p>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <p>This page reads the code from the link on your phone only. It never sends it anywhere.</p>
+    </footer>
+  </body>
+</html>

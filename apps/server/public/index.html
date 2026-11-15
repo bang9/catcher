@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>catcher — your agents, on your phone</title>
+    <meta
+      name="description"
+      content="catcher is an end-to-end encrypted bridge between your phone and your AI agents. Agents ask, your phone buzzes, you answer."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <header class="wrap top">
+      <a class="mark" href="/" aria-label="catcher home">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path class="arc" d="M22.5 9.5a9 9 0 1 0 0 13" />
+          <circle class="dot" cx="21" cy="16" r="3.4" />
+        </svg>
+        catcher
+      </a>
+      <nav aria-label="Site">
+        <a href="/docs/">Docs</a>
+        <a href="/agent.md">agent.md</a>
+        <a href="https://github.com/bang9/catcher">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero">
+        <h1>Your agents ask. Your phone answers.</h1>
+        <p class="lede">
+          catcher is a private line between your phone and the AI agents that work for you: Claude Code, Codex, your own
+          bots, a cron job. Any agent with a shell can use it as one of its own messaging channels.
+        </p>
+
+        <div class="relay" aria-label="An agent asks a question and gets the answer from your phone">
+          <div class="term">
+            <span class="p">$</span> catcher ask "Merge PR 12?" --choices yes,no --wait<br />
+            <span class="dim">waiting for your answer…</span><br />
+            yes
+          </div>
+          <div class="wire" aria-hidden="true"></div>
+          <div class="lock">
+            <b>Relay</b>
+            stores ciphertext it cannot read
+          </div>
+          <div class="wire" aria-hidden="true"></div>
+          <div class="phone">
+            <div class="note">
+              <small>pickle asks</small>
+              <p>Merge PR 12?</p>
+              <div class="choices"><span class="yes">yes</span><span>no</span></div>
+            </div>
+          </div>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <h3>Agent asks, you answer</h3>
+            <p>
+              An agent that needs a decision runs <code>catcher ask</code> or <code>catcher confirm</code>. Your phone
+              buzzes, you tap an answer, the agent carries on. A “no” comes back as exit code 5, so scripts stop on
+              their own.
+            </p>
+          </li>
+          <li>
+            <h3>SMS codes, handed over</h3>
+            <p>
+              A login wants the code that just arrived by text. The agent runs
+              <code>catcher otp --for naver --wait</code>, you type the code in the app, and only that agent gets it.
+            </p>
+          </li>
+          <li>
+            <h3>Agents talk through grants</h3>
+            <p>
+              Agents reach each other only through grants you approve, narrow to a scope and optionally held for your
+              release. You see every message between them and can revoke an agent or a grant at once.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="wrap band split">
+        <div>
+          <h2>Set it up by asking</h2>
+          <div class="tell">
+            <p>Tell your agent: <q>Read https://catcher.bang9.dev/agent.md and install catcher.</q></p>
+          </div>
+          <p>
+            The agent installs the CLI, registers itself and shows you a link. Open the link on your phone, check the
+            name, approve. That is the whole setup.
+          </p>
+        </div>
+        <div>
+          <h2>Or install it yourself</h2>
+          <pre><code>curl -fsSL https://catcher.bang9.dev/install.sh | sh
+catcher register --name pickle</code></pre>
+          <p class="muted">
+            macOS and Linux. On Windows, or anywhere with Node 20+, use <code>npm i -g catcher-cli</code>. The CLI is a
+            single 1.6&nbsp;MB binary that starts in a few milliseconds.
+          </p>
+        </div>
+      </section>
+
+      <section class="wrap band split">
+        <div>
+          <h2>What the relay can and cannot do</h2>
+          <p>
+            The relay is a thin mailbox. It is honest about what it sees, and the protocol makes sure that is all it
+            gets.
+          </p>
+          <p><a href="https://github.com/bang9/catcher/blob/main/docs/threat-model.md">Read the threat model</a></p>
+        </div>
+        <ul class="facts">
+          <li>
+            Message content is end-to-end encrypted. The relay stores ciphertext and deletes it once both sides have it.
+          </li>
+          <li>
+            Messages, answers, agent certificates, grants and revocations are signed. The relay cannot forge any of
+            them.
+          </li>
+          <li>
+            Your owner key is created on your phone and never leaves it. Agents keep their own keys on their machine.
+          </li>
+          <li>
+            The relay does see metadata: who talks to whom, when, message types and sizes, agent names. It can delay or
+            withhold delivery; the app shows the gaps.
+          </li>
+          <li>
+            A registration code is a secret until it is used. Whoever claims it first gets the agent, so the agent shows
+            it only to you, and you approve only an agent you just started.
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <a href="/docs/">Docs</a>
+      <a href="/agent.md">agent.md</a>
+      <a href="https://github.com/bang9/catcher">Source</a>
+      <a href="https://github.com/bang9/catcher/blob/main/SECURITY.md">Report a vulnerability</a>
+      <p>Open source under Apache-2.0. No trackers, no cookies, no third-party scripts on this site.</p>
+    </footer>
+  </body>
+</html>
