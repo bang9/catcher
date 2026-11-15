@@ -171,8 +171,8 @@ export function AgentScreen() {
           <Button
             testID="agent-new-grant"
             kind="secondary"
-            label={t('agent.newGrant')}
-            onPress={() => router.push({ pathname: '/grant-new', params: { from: agent.agentId } })}
+            label={t('link.title')}
+            onPress={() => router.push({ pathname: '/link', params: { a: agent.agentId } })}
           />
           <Button testID="agent-revoke" kind="danger" label={t('agent.revoke')} busy={busy} onPress={revokeAgent} />
         </>

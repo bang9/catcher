@@ -1,7 +1,8 @@
 // Owner key rotation: explain, confirm, drain the feed with the old key, rotate, then show the new recovery code.
 
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, View } from 'react-native';
+import { Text } from '@/ui/text';
 import { router } from 'expo-router';
 import { t } from '@/i18n';
 import { describeError } from '@/lib/errors';

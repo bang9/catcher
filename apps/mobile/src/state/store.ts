@@ -12,6 +12,38 @@ export interface GrantView extends GrantPayload {
   expired: boolean;
 }
 
+/**
+ * A message typed in a conversation, shown right away while it is still on its way. One message can go to several
+ * agents (a pair or a group conversation): the relay gets one envelope per agent, one after another.
+ */
+export interface OutMessage {
+  /** local key until the relay accepts it */
+  key: string;
+  /** the conversation it was typed in (state/rooms.ts roomKey) */
+  room: string;
+  /** agents it goes to */
+  targets: string[];
+  /** envelope ids the relay accepted so far, in target order; dropped once all of them come back from a sync */
+  ids: string[];
+  text: string;
+  createdAt: number;
+  failed: string | null;
+}
+
+/** Where a sent envelope belongs: its conversation, and the one typed message it is a copy of. */
+export interface RoomSend {
+  room: string;
+  /** the outbox key of the typed message (one per send, shared by its copies to each agent) */
+  send: string;
+}
+
+/** A conversation with several agents at once, kept on this phone only (the relay has no groups). */
+export interface Group {
+  id: string;
+  members: string[];
+  createdAt: number;
+}
+
 export interface AppState {
   /** owner key loaded (or confirmed missing) */
   ready: boolean;
@@ -33,6 +65,13 @@ export interface AppState {
   live: LiveState;
   /** a registration code that arrived by link, waiting until the owner can confirm it */
   heldEnrollCode: string | null;
+  /** chat messages not yet back from a sync */
+  outbox: OutMessage[];
+  /** requests this phone just answered (id → what was answered), until the answer comes back from a sync */
+  settled: Record<string, string>;
+  groups: Group[];
+  /** envelope id → the pair or group conversation it was sent from (1:1 messages need no entry) */
+  roomSends: Record<string, RoomSend>;
 }
 
 let state: AppState = {
@@ -51,6 +90,10 @@ let state: AppState = {
   lastSyncAt: null,
   live: 'off',
   heldEnrollCode: null,
+  outbox: [],
+  settled: {},
+  groups: [],
+  roomSends: {},
 };
 
 const listeners = new Set<() => void>();

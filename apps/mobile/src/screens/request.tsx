@@ -5,23 +5,24 @@ import { type ReactNode, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { pendingForOwner } from '@catcher/client';
-import type { AgentSummary, AnswerBody } from '@catcher/protocol';
+import type { AnswerBody } from '@catcher/protocol';
 import { t } from '@/i18n';
 import { asAsk, asConfirm, asGrantRequest, asOtp, messageText } from '@/lib/bodies';
 import type { LocalItem } from '@/lib/db';
 import { describeError } from '@/lib/errors';
 import { dateTime, remaining, shortDate } from '@/lib/format';
 import { answerFor, useAgentMap, useNow } from '@/state/selectors';
-import { getState, requireOwner, useApp } from '@/state/store';
-import { sync, withSeqRetry } from '@/state/sync';
+import { getState, useApp } from '@/state/store';
+import { answerRequest, decideGrant, dropHeld, releaseHeld } from '@/state/actions';
+import { sync } from '@/state/sync';
 import { mono } from '@/ui/colors';
 import { Banner, Button, Empty, Field, Group, Info, Lede, PlainText, Screen, Small, Title } from '@/ui/kit';
 import { answerText, sealedToOldKey } from './parts';
 
 type Names = (id: string) => string;
 
-async function finish(): Promise<void> {
-  await sync().catch(() => undefined);
+// the action already updated the lists and started a background sync: just leave
+function finish(): void {
   router.back();
 }
 
@@ -34,7 +35,7 @@ function useAction() {
     setError(null);
     try {
       await action();
-      await finish();
+      finish();
     } catch (e) {
       setError(describeError(e));
       setBusy(null);
@@ -43,15 +44,8 @@ function useAction() {
   return { busy, error, run };
 }
 
-function sender(item: LocalItem): AgentSummary {
-  const agent = getState().agents.find((a) => a.agentId === item.from);
-  if (!agent) throw new Error('requesting agent is gone');
-  return agent;
-}
-
-function answer(item: LocalItem, body: AnswerBody): Promise<string> {
-  const owner = requireOwner();
-  return withSeqRetry(() => owner.answer(item, sender(item), body));
+function answer(item: LocalItem, body: AnswerBody): Promise<void> {
+  return answerRequest(item, body, answerText(body));
 }
 
 function Frame({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
@@ -212,7 +206,7 @@ function GrantView({ item, names }: { item: LocalItem; names: Names }) {
   const { busy, error, run } = useAction();
   if (!g) return <Malformed />;
   const decide = (approved: boolean) =>
-    void run(String(approved), () => requireOwner().decideGrantRequest(item, getState().agents, approved));
+    void run(String(approved), () => decideGrant(item, approved, t((approved && 'chat.approved') || 'chat.denied')));
 
   let approveLabel = t('grant.approve');
   let content: ReactNode;
@@ -294,11 +288,14 @@ function GrantSummary({ grantId, names }: { grantId: string; names: Names }) {
 
 function HeldView({ item }: { item: LocalItem }) {
   const { busy, error, run } = useAction();
-  const owner = requireOwner();
   const drop = () =>
     Alert.alert(t('held.drop'), undefined, [
       { text: t('common.close'), style: 'cancel' },
-      { text: t('held.drop'), style: 'destructive', onPress: () => void run('drop', () => owner.dropHeld(item.id)) },
+      {
+        text: t('held.drop'),
+        style: 'destructive',
+        onPress: () => void run('drop', () => dropHeld(item, t('held.drop'))),
+      },
     ]);
   return (
     <Frame
@@ -310,7 +307,7 @@ function HeldView({ item }: { item: LocalItem }) {
               label={t('held.release')}
               busy={busy === 'release'}
               disabled={busy !== null}
-              onPress={() => void run('release', () => owner.release(item))}
+              onPress={() => void run('release', () => releaseHeld(item, t('held.release')))}
             />
           )}
           <Button
@@ -378,6 +375,7 @@ export function RequestScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const item = useApp((s) => s.items.find((i) => i.id === id));
   const ownerId = useApp((s) => s.owner?.state.ownerId ?? '');
+  const settled = useApp((s) => s.settled);
   const agentMap = useAgentMap();
   const now = useNow(5_000);
   const names: Names = (aid) => {
@@ -394,7 +392,7 @@ export function RequestScreen() {
   }
   if (item.held) return <HeldView item={item} />;
   if (item.expiresAt !== null && item.expiresAt <= now) return <Done item={item} title={t('request.expired')} />;
-  if (!pendingForOwner([item], ownerId).length || answerFor(getState().items, item.id)) {
+  if (!pendingForOwner([item], ownerId).length || answerFor(getState().items, item.id) || item.id in settled) {
     return <Done item={item} title={t('request.done')} />;
   }
   if (!item.verified) {

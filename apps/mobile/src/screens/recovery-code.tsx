@@ -20,13 +20,11 @@ export function RecoveryCodeScreen() {
 
   return (
     <Screen
+      bare
       testID="recovery-code"
       footer={<Button testID="recovery-saved" label={t('recovery.saved')} onPress={saved} />}
     >
-      <Title>
-        {'\n'}
-        {t('recovery.title')}
-      </Title>
+      <Title>{t('recovery.title')}</Title>
       <Lede>{t('recovery.lede')}</Lede>
       <Code testID="recovery-code-value" value={code} size={20} />
       <Banner tone="danger" title={t('recovery.warning')} body={t('recovery.secret')} />

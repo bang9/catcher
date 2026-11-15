@@ -1,60 +1,41 @@
-// Semantic system colors: they follow light/dark mode and accessibility settings on each platform.
+// The app palette as static, mode-following colors: DynamicColorIOS on iOS, a color resource with a night variant on
+// Android (written by app.config.ts). Fixed values, not the system's wallpaper-tinted ones, so the app looks the same
+// on every phone.
 
-import { Color } from 'expo-router';
-import { DynamicColorIOS, Platform, PlatformColor } from 'react-native';
+import { type ColorValue, DynamicColorIOS, Platform, PlatformColor } from 'react-native';
 
-import { ACCENT, ANDROID_ACCENT_RESOURCE } from './brand.ts';
+import { androidColorName, PALETTE, type PaletteKey } from './brand.ts';
 
-// catcher purple instead of the system blue / wallpaper color
-const accent = Platform.select({
-  ios: DynamicColorIOS(ACCENT),
-  android: PlatformColor(`@color/${ANDROID_ACCENT_RESOURCE}`),
-  default: ACCENT.light,
-});
+function color(key: PaletteKey): ColorValue {
+  const pair = PALETTE[key];
+  // one branch per platform: DynamicColorIOS throws anywhere but iOS, so no eager Platform.select here
+  if (Platform.OS === 'ios') return DynamicColorIOS(pair);
+  if (Platform.OS === 'android') return PlatformColor(`@color/${androidColorName(key)}`);
+  return pair.light;
+}
 
 export const colors = {
-  label: Platform.select({ ios: Color.ios.label, android: Color.android.dynamic.onSurface, default: '#000000' }),
-  secondaryLabel: Platform.select({
-    ios: Color.ios.secondaryLabel,
-    android: Color.android.dynamic.onSurfaceVariant,
-    default: '#3c3c43',
-  }),
-  tertiaryLabel: Platform.select({
-    ios: Color.ios.tertiaryLabel,
-    android: Color.android.dynamic.outline,
-    default: '#8e8e93',
-  }),
-  separator: Platform.select({
-    ios: Color.ios.separator,
-    android: Color.android.dynamic.outlineVariant,
-    default: '#c6c6c8',
-  }),
-  background: Platform.select({
-    ios: Color.ios.systemGroupedBackground,
-    android: Color.android.dynamic.surface,
-    default: '#f2f2f7',
-  }),
-  card: Platform.select({
-    ios: Color.ios.secondarySystemGroupedBackground,
-    android: Color.android.dynamic.surfaceContainer,
-    default: '#ffffff',
-  }),
-  fill: Platform.select({
-    ios: Color.ios.tertiarySystemFill,
-    android: Color.android.dynamic.surfaceContainerHighest,
-    default: '#e5e5ea',
-  }),
-  accent,
-  onAccent: '#ffffff',
-  danger: Platform.select({ ios: Color.ios.systemRed, android: Color.android.dynamic.error, default: '#ff3b30' }),
-  success: Platform.select({ ios: Color.ios.systemGreen, default: '#34c759' }),
-  warning: Platform.select({ ios: Color.ios.systemOrange, default: '#ff9500' }),
-  ownBubble: accent,
-  agentBubble: Platform.select({
-    ios: Color.ios.secondarySystemGroupedBackground,
-    android: Color.android.dynamic.surfaceContainerHigh,
-    default: '#e9e9eb',
-  }),
+  background: color('background'),
+  sidebar: color('sidebar'),
+  card: color('card'),
+  fill: color('fill'),
+  label: color('label'),
+  secondaryLabel: color('secondaryLabel'),
+  tertiaryLabel: color('tertiaryLabel'),
+  separator: color('separator'),
+  ink: color('ink'),
+  onInk: color('onInk'),
+  accent: color('accent'),
+  onAccent: '#ffffff' as ColorValue,
+  danger: color('danger'),
+  success: color('success'),
+  warning: color('warning'),
 };
+
+/** Plain hex values for places that cannot take a platform color (navigation theme, status bar). */
+export function hex(key: PaletteKey, scheme: string | null | undefined): string {
+  if (scheme === 'dark') return PALETTE[key].dark;
+  return PALETTE[key].light;
+}
 
 export const mono = Platform.select({ ios: 'Menlo', default: 'monospace' });

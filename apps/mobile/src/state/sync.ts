@@ -22,8 +22,10 @@ import {
   setKv,
   unverifiedEnvelopes,
 } from '@/lib/db';
+import type { LocalItem } from '@/lib/db';
 import { describeError } from '@/lib/errors';
 import { loadOnboarded, loadOwnerState, saveOnboarded, saveOwnerState } from '@/lib/secure';
+import { loadRooms } from './rooms';
 import { getState, type GrantView, setState } from './store';
 
 const PAGE = 200;
@@ -63,6 +65,7 @@ export async function bootstrap(): Promise<void> {
   resetForOwner(saved.ownerId);
   const owner = makeClient(saved);
   setState({ ready: true, owner, onboarded: loadOnboarded() });
+  loadRooms();
   refreshFromDisk();
   // a key rotation interrupted by a crash or a dropped connection is finished here
   if (saved.pendingSeed) void owner.resumeRotation().catch(() => {});
@@ -74,6 +77,7 @@ export async function createOwner(server: string): Promise<void> {
   saveOwnerState(state);
   resetForOwner(state.ownerId);
   setState({ owner: makeClient(state), onboarded: false, items: [], agents: [] });
+  loadRooms();
 }
 
 export async function restoreOwner(server: string, code: string): Promise<void> {
@@ -82,6 +86,7 @@ export async function restoreOwner(server: string, code: string): Promise<void> 
   resetForOwner(state.ownerId);
   saveOnboarded();
   setState({ owner: makeClient(state), onboarded: true, items: [], agents: [] });
+  loadRooms();
 }
 
 export function finishOnboarding(): void {
@@ -172,10 +177,31 @@ async function openInSlices(
   return out;
 }
 
+/** Drop what a sync has caught up with: sent messages that came back, answers that are now on disk. */
+function reconcileLocal(items: LocalItem[]): void {
+  const ids = new Set(items.map((i) => i.id));
+  const answered = new Set(items.filter((i) => i.type === 'answer' && i.ref).map((i) => i.ref));
+  const { outbox, settled } = getState();
+  // a typed message leaves the outbox once every copy of it (one per agent) came back
+  const nextOutbox = outbox.filter((m) => m.ids.length < m.targets.length || !m.ids.every((id) => ids.has(id)));
+  const nextSettled = Object.fromEntries(Object.entries(settled).filter(([id]) => !answered.has(id)));
+  if (nextOutbox.length !== outbox.length || Object.keys(nextSettled).length !== Object.keys(settled).length) {
+    setState({ outbox: nextOutbox, settled: nextSettled });
+  }
+}
+
+function publishItems(owner: OwnerClient, agents: AgentSummary[]): void {
+  const items = loadItems(nameLookup(agents, owner.state.ownerId));
+  setState({ items });
+  reconcileLocal(items);
+}
+
 async function syncOnce(): Promise<void> {
   const owner = getState().owner;
   if (!owner) return;
-  const [agentsRes, dir] = await Promise.all([owner.agents(), owner.directory()]);
+  // every relay call is a round trip to the edge and the database, so the three reads go out together
+  let cursor = getCursor();
+  const [agentsRes, dir, first] = await Promise.all([owner.agents(), owner.directory(), owner.feed(cursor, PAGE)]);
   const current = verifyOwnerChain(dir.ownerChain, owner.state.ownerId);
   const signKeys = dir.ownerChain.map((l) => l.payload.signPub);
   const agents = agentsRes.agents;
@@ -190,14 +216,23 @@ async function syncOnce(): Promise<void> {
     rollback = e;
   }
 
-  // feed pages; asking for the next page (after=cursor) is what lets the relay delete synced rows
-  let cursor = getCursor();
-  for (;;) {
-    const res = await owner.feed(cursor, PAGE);
-    if (!res.envelopes.length) break;
-    savePage(await openInSlices(owner, res.envelopes, agents, signKeys), res.cursor);
-    cursor = res.cursor;
+  // feed pages; asking for the next page (after=cursor) is what lets the relay delete synced rows. A short page is
+  // the last one, so that follow-up call (the ack) runs next to the held-state checks below instead of before them.
+  let page = first;
+  let ack: Promise<{ envelopes: unknown[] }> | null = null;
+  let fresh = false;
+  while (page.envelopes.length) {
+    savePage(await openInSlices(owner, page.envelopes, agents, signKeys), page.cursor);
+    cursor = page.cursor;
+    fresh = true;
+    if (page.envelopes.length < PAGE) {
+      ack = owner.feed(cursor, PAGE);
+      break;
+    }
+    page = await owner.feed(cursor, PAGE);
   }
+  // new messages show now, before the slower bookkeeping below
+  if (fresh) publishItems(owner, agents);
   // gap checks only cover what this install received live — older rows may already be gone from the relay
   if (getKv('liveSince') === null) setKv('liveSince', String(cursor));
   setState({ liveSince: Number(getKv('liveSince') ?? '0') });
@@ -215,9 +250,11 @@ async function syncOnce(): Promise<void> {
 
   // held messages change state after the fact (released, dropped, expired)
   const held = heldIds();
-  for (let i = 0; i < held.length; i += STATE_CHUNK) {
-    const ids = held.slice(i, i + STATE_CHUNK);
-    const rows = await owner.envelopeStates(ids);
+  const chunks: string[][] = [];
+  for (let i = 0; i < held.length; i += STATE_CHUNK) chunks.push(held.slice(i, i + STATE_CHUNK));
+  const states = await Promise.all(chunks.map((ids) => owner.envelopeStates(ids)));
+  for (const [n, ids] of chunks.entries()) {
+    const rows = states[n] ?? [];
     const byId = new Map(rows.map((r) => [r.envelope.core.id, r]));
     for (const id of ids) {
       const row = byId.get(id);
@@ -232,7 +269,10 @@ async function syncOnce(): Promise<void> {
     }
   }
 
-  setState({ items: loadItems(nameLookup(agents, owner.state.ownerId)), lastSyncAt: Date.now(), syncError: null });
+  publishItems(owner, agents);
+  setState({ lastSyncAt: Date.now(), syncError: null });
+  // the ack page found rows that arrived meanwhile: one more pass picks them up
+  if (ack && (await ack.catch(() => ({ envelopes: [] }))).envelopes.length) again = true;
   if (rollback) throw rollback;
 }
 

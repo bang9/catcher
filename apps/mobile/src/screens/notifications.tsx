@@ -33,6 +33,7 @@ export function NotificationsScreen() {
 
   return (
     <Screen
+      bare
       testID="notifications"
       footer={
         <>
@@ -41,10 +42,7 @@ export function NotificationsScreen() {
         </>
       }
     >
-      <Title>
-        {'\n'}
-        {t('push.title')}
-      </Title>
+      <Title>{t('push.title')}</Title>
       <Lede>{t('push.lede')}</Lede>
       {message && <Banner title={message} />}
     </Screen>

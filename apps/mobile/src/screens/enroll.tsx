@@ -2,7 +2,8 @@
 // claiming their agent. Shows who is asking, warns plainly, and claims only on an explicit tap (never from a link alone).
 
 import { useEffect, useState } from 'react';
-import { Alert, Text } from 'react-native';
+import { Alert } from 'react-native';
+import { Text } from '@/ui/text';
 import { router, useLocalSearchParams } from 'expo-router';
 import { EnrollmentError, type EnrollmentPreview } from '@catcher/client';
 import { t } from '@/i18n';

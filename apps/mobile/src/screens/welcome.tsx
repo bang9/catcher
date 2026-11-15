@@ -1,6 +1,8 @@
-// First launch: what catcher does, then one main action (start). Restore and server are quieter options.
+// First launch: what catcher does, then one main action (start). Restore is the quieter option; the relay server is a
+// setting (Settings → Server), not something a new owner should have to think about here.
 
 import { useState } from 'react';
+import { Image } from 'react-native';
 import { Redirect, router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { describeError } from '@/lib/errors';
@@ -8,7 +10,7 @@ import { chosenServer } from '@/lib/server';
 import { t } from '@/i18n';
 import { useApp } from '@/state/store';
 import { createOwner } from '@/state/sync';
-import { Banner, Button, Lede, Screen, Small, Title } from '@/ui/kit';
+import { Banner, Button, Lede, Screen, Title } from '@/ui/kit';
 
 export function WelcomeScreen() {
   const owner = useApp((s) => s.owner);
@@ -35,6 +37,7 @@ export function WelcomeScreen() {
 
   return (
     <Screen
+      bare
       testID="welcome"
       footer={
         <>
@@ -45,21 +48,18 @@ export function WelcomeScreen() {
             label={t('welcome.restore')}
             onPress={() => router.push('/restore')}
           />
-          <Button
-            kind="plain"
-            label={t('welcome.server', { server: server.replace(/^https?:\/\//, '') })}
-            onPress={() => router.push('/server')}
-          />
         </>
       }
     >
-      <Title>
-        {'\n'}
-        {t('welcome.title')}
-      </Title>
+      {/* the app icon: the one brand moment on an otherwise black-and-white screen */}
+      <Image
+        source={require('../../assets/icon.png')}
+        accessibilityIgnoresInvertColors
+        style={{ width: 56, height: 56, borderRadius: 14, borderCurve: 'continuous' }}
+      />
+      <Title>{t('welcome.title')}</Title>
       <Lede>{t('welcome.lede')}</Lede>
       {error && <Banner tone="danger" title={error} />}
-      <Small> </Small>
     </Screen>
   );
 }

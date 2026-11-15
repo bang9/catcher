@@ -3,7 +3,9 @@
 import type { Key } from '@/i18n';
 import { t } from '@/i18n';
 import { asAnswer, asAsk, asConfirm, asGrantRequest, asOtp, messageText } from '@/lib/bodies';
+import type { AgentSummary } from '@catcher/protocol';
 import type { LocalItem } from '@/lib/db';
+import { ago, isOnline } from '@/lib/format';
 import { getState, useApp } from '@/state/store';
 import { Banner } from '@/ui/kit';
 
@@ -72,4 +74,15 @@ export function answerText(body: unknown): string {
   if (a.approved === true) decided = t('chat.approved');
   if (a.approved === false) decided = t('chat.denied');
   return [decided, a.note].filter(Boolean).join(' · ');
+}
+
+/** Owner ↔ agent items only (agent ↔ agent traffic lives in Activity). */
+export function isThreadItem(item: LocalItem, ownerId: string, agentId: string): boolean {
+  return (item.from === ownerId && item.to === agentId) || (item.from === agentId && item.to === ownerId);
+}
+
+export function presence(agent: AgentSummary, now: number): string {
+  if (isOnline(agent.lastSeenAt, now)) return t('presence.online');
+  if (agent.lastSeenAt === null) return t('presence.never');
+  return t('presence.seen', { time: ago(agent.lastSeenAt, now) });
 }

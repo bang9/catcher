@@ -3,10 +3,16 @@
 //   EXPO_PUBLIC_EAS_PROJECT_ID / EXPO_PUBLIC_EAS_OWNER — override the EAS project (default @bang9/catcher)
 //   CATCHER_GOOGLE_SERVICES — path to google-services.json for Android push (FCM), gitignored
 import type { ExpoConfig } from 'expo/config';
-import { AndroidConfig, type ConfigPlugin, withAndroidColors, withAndroidColorsNight } from 'expo/config-plugins';
+import {
+  AndroidConfig,
+  type ConfigPlugin,
+  withAndroidColors,
+  withAndroidColorsNight,
+  withAndroidStyles,
+} from 'expo/config-plugins';
 import pkg from './package.json';
 import { SITE_HOST } from './src/lib/site.ts';
-import { ACCENT, ANDROID_ACCENT_RESOURCE } from './src/ui/brand.ts';
+import { ACCENT, androidColorName, PALETTE, type PaletteKey } from './src/ui/brand.ts';
 
 // the same id on both stores; Android keeps the 2019 Play listing (com.bang9dev.catcher)
 const BUNDLE_ID = 'com.bang9dev.catcher';
@@ -32,6 +38,8 @@ const config: ExpoConfig = {
     package: BUNDLE_ID,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
+      // the same purple gradient as the app icon
+      backgroundImage: './assets/adaptive-icon-background.png',
       monochromeImage: './assets/adaptive-icon.png',
       backgroundColor: ACCENT.light,
     },
@@ -51,6 +59,12 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    [
+      'expo-font',
+      {
+        fonts: ['Regular', 'Medium', 'SemiBold', 'Bold'].map((w) => `./assets/fonts/Pretendard-${w}.otf`),
+      },
+    ],
     'expo-sqlite',
     'expo-localization',
     ['expo-secure-store', { faceIDPermission: faceId }],
@@ -62,7 +76,7 @@ const config: ExpoConfig = {
         image: './assets/splash-icon.png',
         imageWidth: 120,
         backgroundColor: '#ffffff',
-        dark: { image: './assets/splash-icon.png', backgroundColor: '#000000' },
+        dark: { image: './assets/splash-icon.png', backgroundColor: PALETTE.background.dark },
       },
     ],
   ],
@@ -77,19 +91,36 @@ config.extra = { eas: { projectId } };
 const googleServices = process.env.CATCHER_GOOGLE_SERVICES;
 if (googleServices && config.android) config.android.googleServicesFile = googleServices;
 
-// Android has no dynamic color API in React Native, so the accent is a color resource with a night variant
-const accentColor = (xml: AndroidConfig.Resources.ResourceXML, value: string) =>
-  AndroidConfig.Colors.assignColorValue(xml, { name: ANDROID_ACCENT_RESOURCE, value });
+// Android has no dynamic color API in React Native, so each palette entry is a color resource with a night variant
+const paletteColors = (xml: AndroidConfig.Resources.ResourceXML, mode: 'light' | 'dark') => {
+  let out = xml;
+  for (const key of Object.keys(PALETTE) as PaletteKey[]) {
+    out = AndroidConfig.Colors.assignColorValue(out, { name: androidColorName(key), value: PALETTE[key][mode] });
+  }
+  return out;
+};
 
-const withAccentColor: ConfigPlugin = (c) => {
+const withPalette: ConfigPlugin = (c) => {
   const day = withAndroidColors(c, (m) => {
-    m.modResults = accentColor(m.modResults, ACCENT.light);
+    m.modResults = paletteColors(m.modResults, 'light');
     return m;
   });
   return withAndroidColorsNight(day, (m) => {
-    m.modResults = accentColor(m.modResults, ACCENT.dark);
+    m.modResults = paletteColors(m.modResults, 'dark');
     return m;
   });
 };
 
-export default withAccentColor(config);
+// system dialogs and controls (alerts, text selection) use the ink color instead of Material's default teal
+const withInkAccent: ConfigPlugin = (c) =>
+  withAndroidStyles(c, (m) => {
+    m.modResults = AndroidConfig.Styles.assignStylesValue(m.modResults, {
+      add: true,
+      parent: AndroidConfig.Styles.getAppThemeGroup(),
+      name: 'colorAccent',
+      value: `@color/${androidColorName('ink')}`,
+    });
+    return m;
+  });
+
+export default withInkAccent(withPalette(config));
