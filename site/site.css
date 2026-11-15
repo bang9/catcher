@@ -1,24 +1,26 @@
 /* catcher site: one stylesheet, Pretendard (self-hosted, OFL), light/dark from the OS.
+   Clean neutral greys with one accent: catcher purple (#7318c6, from the original catcher icon).
    No inline styles anywhere: the pages' CSP is style-src 'self', so diagrams are styled by class from here. */
 :root {
-  --paper: #eef1f5;
-  --sheet: #ffffff;
-  --ink: #14243b;
-  --muted: #56667c;
-  --line: #cbd4df;
-  --wire: #b3bfcd;
-  --signal: #f0b100;
-  --signal-ink: #2a1f00;
+  --paper: #ffffff;
+  --sheet: #f7f7f8;
+  --ink: #0d0d0d;
+  --muted: #5d5d5d;
+  --line: #e5e5e5;
+  --wire: #d4d4d8;
+  --signal: #7318c6;
+  --signal-ink: #ffffff;
+  --signal-soft: #f3ebfc;
   --ok: #1f7a4d;
-  --term: #14243b;
-  --term-ink: #e7edf5;
-  --term-dim: #8fa0b6;
+  --term: #171717;
+  --term-ink: #ececec;
+  --term-dim: #8e8e8e;
   /* one soft tint per example agent, so a crowd of agents reads as a crowd */
-  --t1: #d9e5fb;
-  --t2: #d6f0e0;
-  --t3: #ece0f7;
-  --t4: #fde2d8;
-  --t5: #d7eff1;
+  --t1: #e3ebfb;
+  --t2: #e1f3e8;
+  --t3: #efe5fa;
+  --t4: #fbe8e1;
+  --t5: #e0f1f3;
   --sans:
     'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo',
     'Noto Sans KR', 'Segoe UI', Roboto, sans-serif;
@@ -28,23 +30,24 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #0f1a2a;
-    --sheet: #16243a;
-    --ink: #e6ecf3;
-    --muted: #9aabc0;
-    --line: #2b3d57;
-    --wire: #3b5070;
-    --signal: #f5bd1f;
-    --signal-ink: #241a00;
+    --paper: #212121;
+    --sheet: #2f2f2f;
+    --ink: #ececec;
+    --muted: #b4b4b4;
+    --line: #3d3d3d;
+    --wire: #4d4d4d;
+    --signal: #9d5cf5;
+    --signal-ink: #ffffff;
+    --signal-soft: #34274a;
     --ok: #4cc287;
-    --term: #08111e;
-    --term-ink: #e7edf5;
-    --term-dim: #7f91a8;
-    --t1: #23395c;
-    --t2: #1e4433;
-    --t3: #3a2b52;
-    --t4: #523029;
-    --t5: #1d4347;
+    --term: #171717;
+    --term-ink: #ececec;
+    --term-dim: #8e8e8e;
+    --t1: #2c3a52;
+    --t2: #263f31;
+    --t3: #3a2f4d;
+    --t4: #4a3029;
+    --t5: #24403f;
   }
 }
 
@@ -196,15 +199,16 @@ th {
   height: 28px;
 }
 
-.mark .arc {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 3.2;
-  stroke-linecap: round;
+.mark .tile {
+  fill: var(--signal);
 }
 
-.mark .dot {
-  fill: var(--signal);
+.mark .glyph,
+.hub-mark {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 42;
+  stroke-linecap: round;
 }
 
 .top nav {
@@ -311,17 +315,6 @@ th {
 }
 
 .hub-core {
-  fill: var(--ink);
-}
-
-.hub-arc {
-  fill: none;
-  stroke: var(--paper);
-  stroke-width: 3.2;
-  stroke-linecap: round;
-}
-
-.hub-dot {
   fill: var(--signal);
 }
 
@@ -344,7 +337,7 @@ th {
 }
 
 .agent rect {
-  fill: var(--sheet);
+  fill: var(--paper);
   stroke: var(--line);
   stroke-width: 1.5;
 }
@@ -571,7 +564,7 @@ th {
   padding: 0.35rem 0.85rem 0.35rem 0.35rem;
   border: 1.5px solid var(--line);
   border-radius: 999px;
-  background: var(--sheet);
+  background: var(--paper);
   font-size: 0.95rem;
   font-weight: 650;
   white-space: nowrap;
@@ -897,7 +890,7 @@ th {
 
 .doc h2 {
   padding-top: 1.5rem;
-  border-top: 3px solid var(--ink);
+  border-top: 1px solid var(--line);
 }
 
 .doc dl {

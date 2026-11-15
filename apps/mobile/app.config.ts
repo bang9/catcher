@@ -3,8 +3,10 @@
 //   EXPO_PUBLIC_EAS_PROJECT_ID / EXPO_PUBLIC_EAS_OWNER — override the EAS project (default @bang9/catcher)
 //   CATCHER_GOOGLE_SERVICES — path to google-services.json for Android push (FCM), gitignored
 import type { ExpoConfig } from 'expo/config';
+import { AndroidConfig, type ConfigPlugin, withAndroidColors, withAndroidColorsNight } from 'expo/config-plugins';
 import pkg from './package.json';
 import { SITE_HOST } from './src/lib/site.ts';
+import { ACCENT, ANDROID_ACCENT_RESOURCE } from './src/ui/brand.ts';
 
 // the same id on both stores; Android keeps the 2019 Play listing (com.bang9dev.catcher)
 const BUNDLE_ID = 'com.bang9dev.catcher';
@@ -18,6 +20,7 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   scheme: 'catcher',
   userInterfaceStyle: 'automatic',
+  icon: './assets/icon.png',
   ios: {
     bundleIdentifier: BUNDLE_ID,
     supportsTablet: false,
@@ -27,6 +30,11 @@ const config: ExpoConfig = {
   },
   android: {
     package: BUNDLE_ID,
+    adaptiveIcon: {
+      foregroundImage: './assets/adaptive-icon.png',
+      monochromeImage: './assets/adaptive-icon.png',
+      backgroundColor: ACCENT.light,
+    },
     blockedPermissions: [
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.READ_EXTERNAL_STORAGE',
@@ -47,8 +55,16 @@ const config: ExpoConfig = {
     'expo-localization',
     ['expo-secure-store', { faceIDPermission: faceId }],
     ['expo-local-authentication', { faceIDPermission: faceId }],
-    ['expo-notifications', { defaultChannel: 'default' }],
-    ['expo-splash-screen', { backgroundColor: '#ffffff', dark: { backgroundColor: '#000000' } }],
+    ['expo-notifications', { defaultChannel: 'default', icon: './assets/notification-icon.png', color: ACCENT.light }],
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/splash-icon.png',
+        imageWidth: 120,
+        backgroundColor: '#ffffff',
+        dark: { image: './assets/splash-icon.png', backgroundColor: '#000000' },
+      },
+    ],
   ],
   extra: {},
 };
@@ -61,4 +77,19 @@ config.extra = { eas: { projectId } };
 const googleServices = process.env.CATCHER_GOOGLE_SERVICES;
 if (googleServices && config.android) config.android.googleServicesFile = googleServices;
 
-export default config;
+// Android has no dynamic color API in React Native, so the accent is a color resource with a night variant
+const accentColor = (xml: AndroidConfig.Resources.ResourceXML, value: string) =>
+  AndroidConfig.Colors.assignColorValue(xml, { name: ANDROID_ACCENT_RESOURCE, value });
+
+const withAccentColor: ConfigPlugin = (c) => {
+  const day = withAndroidColors(c, (m) => {
+    m.modResults = accentColor(m.modResults, ACCENT.light);
+    return m;
+  });
+  return withAndroidColorsNight(day, (m) => {
+    m.modResults = accentColor(m.modResults, ACCENT.dark);
+    return m;
+  });
+};
+
+export default withAccentColor(config);

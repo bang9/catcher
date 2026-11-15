@@ -1,7 +1,16 @@
 // Semantic system colors: they follow light/dark mode and accessibility settings on each platform.
 
 import { Color } from 'expo-router';
-import { Platform } from 'react-native';
+import { DynamicColorIOS, Platform, PlatformColor } from 'react-native';
+
+import { ACCENT, ANDROID_ACCENT_RESOURCE } from './brand.ts';
+
+// catcher purple instead of the system blue / wallpaper color
+const accent = Platform.select({
+  ios: DynamicColorIOS(ACCENT),
+  android: PlatformColor(`@color/${ANDROID_ACCENT_RESOURCE}`),
+  default: ACCENT.light,
+});
 
 export const colors = {
   label: Platform.select({ ios: Color.ios.label, android: Color.android.dynamic.onSurface, default: '#000000' }),
@@ -35,12 +44,12 @@ export const colors = {
     android: Color.android.dynamic.surfaceContainerHighest,
     default: '#e5e5ea',
   }),
-  accent: Platform.select({ ios: Color.ios.systemBlue, android: Color.android.dynamic.primary, default: '#007aff' }),
-  onAccent: Platform.select({ ios: '#ffffff', android: Color.android.dynamic.onPrimary, default: '#ffffff' }),
+  accent,
+  onAccent: '#ffffff',
   danger: Platform.select({ ios: Color.ios.systemRed, android: Color.android.dynamic.error, default: '#ff3b30' }),
   success: Platform.select({ ios: Color.ios.systemGreen, default: '#34c759' }),
   warning: Platform.select({ ios: Color.ios.systemOrange, default: '#ff9500' }),
-  ownBubble: Platform.select({ ios: Color.ios.systemBlue, android: Color.android.dynamic.primary, default: '#007aff' }),
+  ownBubble: accent,
   agentBubble: Platform.select({
     ios: Color.ios.secondarySystemGroupedBackground,
     android: Color.android.dynamic.surfaceContainerHigh,
