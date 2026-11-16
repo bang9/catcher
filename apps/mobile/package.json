@@ -1,6 +1,6 @@
 {
   "name": "@catcher/mobile",
-  "version": "0.1.0",
+  "version": "4.0.0",
   "private": true,
   "description": "catcher owner app (iOS + Android, Expo) — holds the owner key, approves agents, answers requests, keeps the history",
   "main": "index.ts",
