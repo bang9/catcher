@@ -47,7 +47,7 @@ import { describeError } from '@/lib/errors';
 import { contentChanged, type Follow, type Jump, jumpOf, scrolled, sent, startFollow } from '@/lib/follow';
 import { clockTime, remaining, shortDate } from '@/lib/format';
 import { answerRequest, decideGrant, dropHeld, releaseHeld } from '@/state/actions';
-import { discardMessage, outSent, retryMessage, type Room, roomItems, sendToRoom } from '@/state/rooms';
+import { discardMessage, outSent, retryMessage, type Room, roomItems, sendToRoom, useNewest } from '@/state/rooms';
 import { answerFor, useNow, useOwnerId } from '@/state/selectors';
 import { type OutMessage, useApp } from '@/state/store';
 import { colors } from '@/ui/colors';
@@ -608,7 +608,11 @@ export function ChatView({ room, targets, placeholder, inactive, empty, notice }
   // another screen opens, or the drawer: the keyboard closes
   useFocusEffect(useCallback(() => dismissKeyboard, []));
 
-  const thread = useMemo(() => roomItems(room, items, ownerId, roomSends), [room, items, ownerId, roomSends]);
+  const same = useNewest();
+  const thread = useMemo(
+    () => roomItems(room, items, ownerId, roomSends, same),
+    [room, items, ownerId, roomSends, same],
+  );
   const threadIds = useMemo(() => new Set(thread.map((i) => i.id)), [thread]);
   const pendingIds = useMemo(() => {
     // `now`: an expired request stops being actionable without a sync

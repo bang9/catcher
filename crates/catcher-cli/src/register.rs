@@ -3,6 +3,7 @@
 // app; this side then fetches the claim, checks it (agent steps 1–6 in packages/protocol/src/enroll.ts) and writes
 // state.json. Any claim that fails steps 1–4 deletes the registration: one guess only.
 
+use crate::agent::valid_name;
 use crate::api::Api;
 use crate::auth::now_ms;
 use crate::bytes::{b64, unb64};
@@ -287,27 +288,30 @@ pub fn finalise(
             return Err(Error::cli(BAD_CLAIM_TEXT, EXIT_BAD_CLAIM));
         }
     };
-    // 5: the cert verifies under the owner key that signed the claim and is for exactly this agent
+    // 5: the cert verifies under the owner key that signed the claim and is for exactly this agent. The name is the
+    // owner's pick: it starts as the one this agent asked for, and the owner may have chosen another.
+    let mut name = None;
     let cert_ok = verify_statement(cert, "cert", &by.owner_sign_pub).is_ok_and(|c| {
+        name = c.str("name").filter(|n| valid_name(n)).map(String::from);
         is(c.get("ownerId"), &by.owner_id)
             && is(c.get("agentId"), &p.agent_id())
-            && is(c.get("name"), &p.name())
+            && name.is_some()
             && is(c.get("signPub"), &b64(&id.sign_pub))
             && is(c.get("boxPub"), &b64(&id.box_pub))
     });
-    if !cert_ok {
+    let (true, Some(name)) = (cert_ok, name) else {
         // the claim is genuine; a bad cert is the relay's doing and may be fixed on the next try
         return Err(Error::plain(
             "the owner approved this agent, but the relay served no valid certificate yet — run: catcher register --wait",
         ));
-    }
+    };
     // 6: pin the owner key that signed the claim
     let state = AgentState {
         raw: Obj::new()
             .with("server", p.server())
             .with("agentId", p.agent_id())
             .with("ownerId", by.owner_id.as_str())
-            .with("name", p.name())
+            .with("name", name.as_str())
             .with("seed", p.text("seed"))
             .with(
                 "ownerPin",

@@ -56,6 +56,8 @@ export interface AppState {
   revokedAgents: string[];
   /** when the current owner key was issued — older envelopes were sealed to a previous key */
   ownerKeySince: number;
+  /** every signing key in the verified owner chain (certs of old agents may carry an older one) */
+  ownerSignKeys: string[];
   /** first feed cursor this install received live; seq gap checks start here */
   liveSince: number;
   items: LocalItem[];
@@ -83,6 +85,7 @@ let state: AppState = {
   grants: [],
   revokedAgents: [],
   ownerKeySince: 0,
+  ownerSignKeys: [],
   liveSince: 0,
   items: [],
   syncing: false,

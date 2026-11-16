@@ -3,11 +3,11 @@
 
 import { useMemo } from 'react';
 import { Pressable, View } from 'react-native';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import type { AgentSummary } from '@catcher/protocol';
 import { t } from '@/i18n';
 import { isOnline } from '@/lib/format';
-import { agentKey, groupKey, pairKey, type Room, splitPair } from '@/state/rooms';
+import { agentKey, groupKey, pairKey, type Room, splitPair, useNewest } from '@/state/rooms';
 import { useNow } from '@/state/selectors';
 import { type GrantView, useApp } from '@/state/store';
 import { colors } from '@/ui/colors';
@@ -53,6 +53,9 @@ export function ChatScreen() {
   const name = agent?.name ?? '';
   let inactive: string | null = null;
   if (agent?.status !== 'active') inactive = t('chat.inactive');
+  // an old agent that a newer one continues: its conversation is the newer one's
+  const newest = useNewest()(agentId);
+  if (newest !== agentId) return <Redirect href={{ pathname: '/chat/[agentId]', params: { agentId: newest } }} />;
   return (
     <>
       <Stack.Screen
@@ -76,7 +79,7 @@ export function ChatScreen() {
         inactive={inactive}
         empty={
           <View style={{ alignItems: 'center', gap: 10 }}>
-            <Avatar name={name} size={48} />
+            <Avatar name={name} agent={agent} size={48} />
             <Text style={{ fontSize: 18, lineHeight: 24, fontWeight: '600', color: colors.label }}>{name}</Text>
             <Text style={{ fontSize: 15, lineHeight: 22, textAlign: 'center', color: colors.secondaryLabel }}>
               {t('chat.emptyLede', { name })}

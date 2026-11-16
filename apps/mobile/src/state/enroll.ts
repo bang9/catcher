@@ -2,9 +2,10 @@
 // opens it here, checks the confirm sheet, and claims the agent in one step. Nothing is ever claimed without that tap.
 
 import { ApiError, EnrollmentError, type EnrollmentPreview, RollbackError } from '@catcher/client';
-import { CROCKFORD, EnrollCodeError, groups, normalizeB32, parseEnrollCode } from '@catcher/protocol';
+import { CROCKFORD, EnrollCodeError, groups, NAME_PATTERN, normalizeB32, parseEnrollCode } from '@catcher/protocol';
 import { describeError } from '@/lib/errors';
 import { t } from '@/i18n';
+import { moveGroups } from './rooms';
 import { requireOwner, setState } from './store';
 import { saveMismatches, sync } from './sync';
 
@@ -57,17 +58,63 @@ export function cachedPreview(code: string): EnrollmentPreview | undefined {
   return previews.get(formatCodeInput(code));
 }
 
-/** The approve tap. `replace` revokes the live agent of the same name first. */
-export async function claimCode(code: string, replace: boolean): Promise<{ agentId: string; name: string }> {
+export interface ClaimResult {
+  agentId: string;
+  name: string;
+  /** continuing an old agent: its grants could not all be moved yet (the agent page offers to try again) */
+  grantsLeft: boolean;
+}
+
+/**
+ * The approve tap, with the name the owner settled on. `continues` connects the agent as the continuation of an old
+ * one: the old one is disconnected (if it still is connected), then its grants and groups move to the new agent.
+ */
+export async function claimCode(code: string, opts: { name: string; continues?: string }): Promise<ClaimResult> {
   const owner = requireOwner();
+  let result: { agentId: string; name: string };
   try {
-    const result = await owner.claimEnrollment(code, { replace });
+    result = await owner.claimEnrollment(code, { name: opts.name, continues: opts.continues });
     previews.delete(formatCodeInput(code));
-    await sync().catch(() => undefined);
-    return result;
   } finally {
     saveMismatches(owner);
   }
+  let grantsLeft = false;
+  if (opts.continues) {
+    moveGroups(opts.continues, result.agentId);
+    try {
+      await owner.continueGrants(opts.continues, result.agentId);
+    } catch {
+      grantsLeft = true;
+    }
+  }
+  await sync().catch(() => undefined);
+  return { ...result, grantsLeft };
+}
+
+/** Lowercase letters, digits and dashes, up to 32, and not "owner" — what agents can call each other by. */
+export function nameProblem(name: string, taken: string[]): string | null {
+  if (!NAME_PATTERN.test(name)) return t('name.rule');
+  if (taken.includes(name)) return t('name.taken', { name });
+  return null;
+}
+
+/** What someone probably meant by a name: lower case, spaces and underscores as dashes, other characters dropped. */
+export function tidyName(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .slice(0, 32);
+}
+
+/** `name`, or `name-2`, `name-3`, … — the first one not in `taken`. */
+export function freeName(name: string, taken: string[]): string {
+  if (!taken.includes(name)) return name;
+  for (let n = 2; n < 100; n += 1) {
+    const next = `${name.slice(0, 32 - String(n).length - 1)}-${n}`;
+    if (!taken.includes(next)) return next;
+  }
+  return name;
 }
 
 /** A code from a link: keep it until the owner exists and has finished onboarding. */
@@ -90,6 +137,7 @@ export function describeEnrollError(e: unknown): string {
     if (e.code === 'tag_mismatch') return t('enroll.error.mismatch');
     if (e.code === 'locked') return t('enroll.error.locked');
     if (e.code === 'nothing_to_replace') return t('enroll.error.nothingToReplace');
+    if (e.code === 'bad_name') return t('name.rule');
     return t('enroll.error.badStatement');
   }
   if (e instanceof ApiError) {

@@ -245,8 +245,8 @@ export async function ownerEnrollment(env: Env, caller: Caller, lookup: string):
 
 /**
  * POST /v1/owner/enrollments/{lookup}/claim {claim, cert, replace?} — one transaction: mark the code claimed (if it is
- * still open and the name is free) and create the active agent with its cert. `replace` names the old same-name agent
- * the owner revoked first.
+ * still open and the cert's name is free) and create the active agent with its cert. The cert's name is the owner's
+ * pick; `replace` names the old agent the owner disconnected first and this one continues (cert.continues).
  */
 export async function claimEnrollment(
   env: Env,
@@ -283,9 +283,12 @@ export async function claimEnrollment(
   if (claim.agentId !== row.agent_id || claim.agentSignPub !== e.signPub || claim.agentBoxPub !== e.boxPub) {
     bad('claim does not match the registration', 'bad_statement');
   }
+  // the name is the owner's pick (it starts as the one the agent asked for); keys, device and platform are the agent's
+  if (typeof cert.name !== 'string' || !NAME_PATTERN.test(cert.name)) {
+    bad('name must be lowercase letters, digits and dashes (max 32)', 'bad_name');
+  }
   if (
     cert.agentId !== row.agent_id ||
-    cert.name !== e.name ||
     cert.signPub !== e.signPub ||
     cert.boxPub !== e.boxPub ||
     cert.device !== e.device ||
@@ -293,11 +296,15 @@ export async function claimEnrollment(
   ) {
     bad('cert does not match the registration', 'cert_mismatch');
   }
+  if (cert.continues !== undefined && cert.continues !== req.replace) {
+    bad('cert.continues must name the agent it replaces', 'bad_replace');
+  }
   if (req.replace !== undefined) {
-    const old = await env.DB.prepare('SELECT name FROM agents WHERE id = ? AND owner_id = ?')
+    // continuing an old agent: it is the owner's, and the owner disconnected it first
+    const old = await env.DB.prepare('SELECT status FROM agents WHERE id = ? AND owner_id = ?')
       .bind(req.replace, caller.ownerId)
-      .first<{ name: string }>();
-    if (!old || old.name !== e.name) bad('replace must name your old agent with this name', 'bad_replace');
+      .first<{ status: string }>();
+    if (!old || old.status === 'active') bad('replace must name your old, disconnected agent', 'bad_replace');
   }
   const claimText = JSON.stringify(req.claim);
   const won = 'EXISTS (SELECT 1 FROM enrollments WHERE lookup = ? AND claim = ?)';
@@ -308,14 +315,14 @@ export async function claimEnrollment(
         `UPDATE enrollments SET claimed_by = ?, claimed_at = ?, claim = ?, expires_at = ?
            WHERE lookup = ? AND claimed_at IS NULL AND expires_at > ?
              AND NOT EXISTS (SELECT 1 FROM agents WHERE owner_id = ? AND name = ? AND status IN ('pending', 'active'))`,
-      ).bind(caller.ownerId, now, claimText, now + CLAIMED_KEEP_MS, lookup, now, caller.ownerId, e.name),
+      ).bind(caller.ownerId, now, claimText, now + CLAIMED_KEEP_MS, lookup, now, caller.ownerId, cert.name),
       env.DB.prepare(
         `INSERT INTO agents (id, owner_id, name, sign_pub, box_pub, device, provider, status, cert, created_at)
            SELECT ?, ?, ?, ?, ?, ?, ?, 'active', ?, ? WHERE ${won}`,
       ).bind(
         row.agent_id,
         caller.ownerId,
-        e.name,
+        cert.name,
         e.signPub,
         e.boxPub,
         e.device,
@@ -344,7 +351,7 @@ export async function claimEnrollment(
     throw new HttpError(
       409,
       'name_taken',
-      `you already have an agent named ${e.name} — replace it or ask for another name`,
+      `you already have an agent named ${cert.name} — pick another name or continue that agent`,
     );
   }
   later(ctx, signal(env, caller.ownerId, { to: '*', kind: 'directory' }));

@@ -6,7 +6,7 @@
 // (roomSends) so it shows in that conversation; agents' replies point back to it (ref) and show there too.
 
 import { useMemo } from 'react';
-import type { AgentSummary } from '@catcher/protocol';
+import { type AgentSummary, verifyStatement } from '@catcher/protocol';
 import { getKv, type LocalItem, setKv } from '@/lib/db';
 import { describeError } from '@/lib/errors';
 import { usePending, useOwnerId } from './selectors';
@@ -39,6 +39,59 @@ export function splitPair(id: string): [string, string] | null {
   const parts = id.split('~');
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   return [parts[0], parts[1]];
+}
+
+// ─── an agent and the agents it continues ────────────────────────────────────
+// When an agent's machine is rebuilt it comes back with a new key, so a new id. The owner can connect it as the
+// continuation of the old one (its cert says `continues`): both ids are then one conversation, under the newest.
+
+/** old agent id → the agent that continues it, from certs signed by the owner chain. */
+export function successors(agents: AgentSummary[], ownerSignKeys: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const a of agents) {
+    const cert = a.cert;
+    const old = cert?.payload.continues;
+    if (!cert || !old || old === a.agentId || !ownerSignKeys.includes(cert.signer)) continue;
+    try {
+      const c = verifyStatement(cert, 'cert', cert.signer);
+      if (c.agentId === a.agentId && c.continues === old) out.set(old, a.agentId);
+    } catch {
+      // not the owner's signature: not a continuation
+    }
+  }
+  return out;
+}
+
+/** The newest agent in an id's line (the id itself when nothing continues it). */
+export function newest(next: Map<string, string>, id: string): string {
+  let cur = id;
+  // a chain can only be as long as the agents list; a loop (never signed that way) stops here too
+  for (let i = 0; i <= next.size; i += 1) {
+    const n = next.get(cur);
+    if (!n) return cur;
+    cur = n;
+  }
+  return cur;
+}
+
+/** `newest` for every id, from the agents in the store. */
+export function useNewest(): (id: string) => string {
+  const agents = useApp((s) => s.agents);
+  const keys = useApp((s) => s.ownerSignKeys);
+  return useMemo(() => {
+    const next = successors(agents, keys);
+    return (id: string) => newest(next, id);
+  }, [agents, keys]);
+}
+
+/** Move an agent's place in groups to the agent that continues it (kept on this phone only). */
+export function moveGroups(oldId: string, newId: string): void {
+  const groups = getState().groups.map((g) => {
+    if (!g.members.includes(oldId)) return g;
+    const members = [...new Set(g.members.map((m) => (m === oldId && newId) || m))].sort();
+    return { ...g, members };
+  });
+  saveGroups(groups.filter((g) => g.members.length > 1));
 }
 
 // ─── on-disk state (kv) ──────────────────────────────────────────────────────
@@ -158,11 +211,15 @@ export function roomItems(
   items: LocalItem[],
   ownerId: string,
   roomSends: Record<string, RoomSend>,
+  /** an old agent's items count as its newest continuation's */
+  same: (id: string) => string = (id) => id,
 ): LocalItem[] {
   if (room.kind === 'agent') {
     const id = room.agentId;
     return items.filter((i) => {
-      const direct = (i.from === ownerId && i.to === id) || (i.from === id && i.to === ownerId);
+      const from = same(i.from);
+      const to = same(i.to);
+      const direct = (i.from === ownerId && to === id) || (from === id && i.to === ownerId);
       if (!direct) return false;
       // sent from a pair or group: it lives there
       if (i.from === ownerId && i.type === 'message' && roomSends[i.id]) return false;
@@ -182,8 +239,10 @@ export function roomItems(
   // the owner's message went out once per agent: show it once
   const shownSends = new Set<string>();
   return items.filter((i) => {
+    const from = same(i.from);
     if (room.kind === 'pair') {
-      const between = (i.from === room.a && i.to === room.b) || (i.from === room.b && i.to === room.a);
+      const to = same(i.to);
+      const between = (from === room.a && to === room.b) || (from === room.b && to === room.a);
       if (between) return true;
     }
     if (i.from === ownerId && mine.has(i.id)) {
@@ -193,7 +252,7 @@ export function roomItems(
       return true;
     }
     // an agent answering something the owner sent here
-    return i.to === ownerId && members.has(i.from) && !!i.ref && mine.has(i.ref);
+    return i.to === ownerId && members.has(from) && !!i.ref && mine.has(i.ref);
   });
 }
 
@@ -219,17 +278,23 @@ export function useRoomList(): RoomSummary[] {
   const roomSends = useApp((s) => s.roomSends);
   const ownerId = useOwnerId();
   const pending = usePending();
+  const same = useNewest();
   return useMemo(() => {
     const byId = new Map(agents.map((a) => [a.agentId, a]));
     const waitingFrom = new Map<string, number>();
-    for (const r of pending.requests) waitingFrom.set(r.from, (waitingFrom.get(r.from) ?? 0) + 1);
+    for (const r of pending.requests) waitingFrom.set(same(r.from), (waitingFrom.get(same(r.from)) ?? 0) + 1);
     const heldIn = new Map<string, number>();
-    for (const h of pending.held) heldIn.set(pairKey(h.from, h.to), (heldIn.get(pairKey(h.from, h.to)) ?? 0) + 1);
+    for (const h of pending.held) {
+      const key = pairKey(same(h.from), same(h.to));
+      heldIn.set(key, (heldIn.get(key) ?? 0) + 1);
+    }
 
     const out: RoomSummary[] = [];
-    const lastOf = (room: Room) => roomItems(room, items, ownerId, roomSends).at(-1);
+    const lastOf = (room: Room) => roomItems(room, items, ownerId, roomSends, same).at(-1);
 
     for (const a of agents) {
+      // continued by a newer agent (its conversation lives there), or taken off the lists by the owner
+      if (same(a.agentId) !== a.agentId || a.removedAt) continue;
       const room: Room = { kind: 'agent', key: agentKey(a.agentId), agentId: a.agentId };
       const last = lastOf(room);
       if (a.status !== 'active' && !last) continue;
@@ -245,10 +310,17 @@ export function useRoomList(): RoomSummary[] {
 
     // pairs: any two agents that talked, or that the owner linked
     const pairs = new Set<string>();
-    for (const i of items) if (byId.has(i.from) && byId.has(i.to)) pairs.add(pairId(i.from, i.to));
-    for (const g of grants)
-      if (!g.revoked && !g.expired && byId.has(g.from) && byId.has(g.to)) pairs.add(pairId(g.from, g.to));
-    for (const s of Object.values(roomSends)) if (s.room.startsWith('p:')) pairs.add(s.room.slice(2));
+    const addPair = (x: string, y: string) => {
+      const a = same(x);
+      const b = same(y);
+      if (a !== b && byId.has(a) && byId.has(b)) pairs.add(pairId(a, b));
+    };
+    for (const i of items) addPair(i.from, i.to);
+    for (const g of grants) if (!g.revoked && !g.expired) addPair(g.from, g.to);
+    for (const s of Object.values(roomSends)) {
+      const split = (s.room.startsWith('p:') && splitPair(s.room.slice(2))) || null;
+      if (split) addPair(split[0], split[1]);
+    }
     for (const id of pairs) {
       const split = splitPair(id);
       if (!split) continue;
@@ -269,7 +341,7 @@ export function useRoomList(): RoomSummary[] {
 
     for (const g of groups) {
       const room: Room = { kind: 'group', key: groupKey(g.id), group: g };
-      const members = g.members.map((m) => byId.get(m)).filter((m): m is AgentSummary => !!m);
+      const members = [...new Set(g.members.map(same))].map((m) => byId.get(m)).filter((m): m is AgentSummary => !!m);
       const last = lastOf(room);
       out.push({
         room,
@@ -282,5 +354,5 @@ export function useRoomList(): RoomSummary[] {
     }
 
     return out.sort((x, y) => y.at - x.at);
-  }, [agents, items, grants, groups, roomSends, ownerId, pending]);
+  }, [agents, items, grants, groups, roomSends, ownerId, pending, same]);
 }

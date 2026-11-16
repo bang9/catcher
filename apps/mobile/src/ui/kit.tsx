@@ -360,6 +360,8 @@ export function Group({ children, style }: { children: ReactNode; style?: ViewSt
 
 interface RowProps {
   title: string;
+  /** an avatar or icon before the text */
+  leading?: ReactNode;
   subtitle?: string;
   detail?: string;
   accessory?: ReactNode;
@@ -369,7 +371,7 @@ interface RowProps {
   testID?: string;
 }
 
-export function Row({ title, subtitle, detail, accessory, onPress, danger, first, testID }: RowProps) {
+export function Row({ title, leading, subtitle, detail, accessory, onPress, danger, first, testID }: RowProps) {
   let titleColor = colors.label;
   if (danger) titleColor = colors.danger;
   const content = (
@@ -383,6 +385,7 @@ export function Row({ title, subtitle, detail, accessory, onPress, danger, first
         paddingHorizontal: 16,
       }}
     >
+      {leading}
       <View style={{ flex: 1, gap: 2 }}>
         <Text numberOfLines={2} style={{ fontSize: 16, fontWeight: '500', color: titleColor }}>
           {title}

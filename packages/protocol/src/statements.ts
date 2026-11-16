@@ -10,6 +10,7 @@ export interface CertPayload {
   kind: 'cert';
   ownerId: string;
   agentId: string;
+  /** what the owner calls this agent — a nickname the owner can change (a new cert); the id is the identity */
   name: string;
   signPub: string;
   boxPub: string;
@@ -19,6 +20,11 @@ export interface CertPayload {
   expiresAt: number;
   /** revocation list version when this cert was issued — agents never accept an older list (rollback floor) */
   revocationFloor: number;
+  /**
+   * The owner's agent this one continues (same role, new key — e.g. its machine was rebuilt): the owner's app shows both
+   * as one conversation and moved the old agent's grants over. Absent for a new agent.
+   */
+  continues?: string;
 }
 
 export interface GrantPayload {

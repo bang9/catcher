@@ -21,6 +21,7 @@ import {
   type GrantRequestBody,
   identityFromSeed,
   type Identity,
+  NAME_PATTERN,
   newIdentity,
   openEnvelope,
   type OwnerEnrollmentResponse,
@@ -110,7 +111,22 @@ export interface EnrollmentPreview {
   existing?: { agentId: string; name: string; device: string; provider: string };
 }
 
-export type EnrollmentProblem = 'locked' | 'tag_mismatch' | 'bad_statement' | 'nothing_to_replace' | 'changed';
+export type EnrollmentProblem =
+  | 'locked'
+  | 'tag_mismatch'
+  | 'bad_statement'
+  | 'nothing_to_replace'
+  | 'changed'
+  | 'bad_name';
+
+export interface ClaimOptions {
+  /** continue the live agent with the agent's own name (preview.existing): disconnect it, take its place */
+  replace?: boolean;
+  /** continue this agent of yours (live or already disconnected): its name, conversation and grants carry over */
+  continues?: string;
+  /** what to call the agent — defaults to the name it asked for, or the name of the agent it continues */
+  name?: string;
+}
 
 /** Local refusals. Code typos throw EnrollCodeError (bad_length / bad_char / bad_check); relay answers throw ApiError. */
 export class EnrollmentError extends Error {
@@ -135,6 +151,10 @@ interface VerifiedEnrollment {
   /** the enroll statement's signature: the exact statement the confirm sheet showed */
   sig: string;
   preview: EnrollmentPreview;
+}
+
+function scopesOf(g: GrantPayload): string {
+  return [...g.scopes].sort().join(',');
 }
 
 export class OwnerClient {
@@ -283,14 +303,18 @@ export class OwnerClient {
 
   /**
    * Step 5, after the person tapped approve on the confirm sheet: sign the cert and the claim (which seals the code's
-   * secret part to the agent) and post both. With `replace`, the live agent of the same name is revoked first.
+   * secret part to the agent) and post both. The owner may give the agent another name than the one it asked for. To
+   * continue an old agent (`replace` for the live one with the same name, `continues` for any of yours), the old agent
+   * is disconnected first and the new cert names it; move its grants with `continueGrants` afterwards.
    */
-  async claimEnrollment(code: string, opts: { replace?: boolean } = {}): Promise<{ agentId: string; name: string }> {
+  async claimEnrollment(code: string, opts: ClaimOptions = {}): Promise<{ agentId: string; name: string }> {
     const parsed = parseEnrollCode(code);
     let verified = this.verifiedEnrollments.get(parsed.lookup);
     const stale = !verified || verified.code.secret !== parsed.secret || verified.code.tag !== parsed.tag;
-    if (opts.replace) {
-      // replacing revokes the old agent, so the person must have seen exactly what gets approved
+    const continuing = !!opts.replace || opts.continues !== undefined;
+    if (continuing) {
+      // continuing disconnects the old agent and hands its place over, so the person must have seen exactly what gets
+      // approved
       if (stale || !verified) throw new EnrollmentError('changed', 'show the confirm sheet for this code first');
       const shown = verified;
       // and right before revoking: the code is still valid and unclaimed (a typo or a used code never costs the old
@@ -310,34 +334,49 @@ export class OwnerClient {
     }
     if (!verified) throw new EnrollmentError('bad_statement', 'look the code up first');
     const { payload, preview } = verified;
-    let revocationFloor: number;
-    let replace: string | undefined;
+    let oldId: string | undefined = opts.continues;
     if (opts.replace) {
       if (!preview.existing)
         throw new EnrollmentError('nothing_to_replace', `you have no live agent named ${payload.name}`);
-      replace = preview.existing.agentId;
-      // the cert carries the revocation version that includes the old agent
-      revocationFloor = (await this.revoke({ agents: [replace] })).payload.version;
+      oldId = preview.existing.agentId;
+    }
+    let name = opts.name ?? payload.name;
+    let revocationFloor: number;
+    if (oldId !== undefined) {
+      // the old agent comes from a cert this owner signed, never from the relay's word
+      const old = (await this.certifiedAgents()).get(oldId);
+      if (!old || oldId === preview.agentId) {
+        throw new EnrollmentError('nothing_to_replace', 'that agent is not one of yours any more');
+      }
+      if (opts.name === undefined) name = old.cert.name;
+      if (old.live) {
+        // the cert carries the revocation version that includes the old agent
+        revocationFloor = (await this.revoke({ agents: [oldId] })).payload.version;
+      } else {
+        revocationFloor = await this.revocationVersion();
+      }
     } else {
       revocationFloor = await this.revocationVersion();
     }
+    if (!NAME_PATTERN.test(name)) {
+      throw new EnrollmentError('bad_name', 'use lowercase letters, digits and dashes (max 32), not "owner"');
+    }
     const now = Date.now();
-    const cert = signStatement(
-      {
-        kind: 'cert',
-        ownerId: this.state.ownerId,
-        agentId: preview.agentId,
-        name: payload.name,
-        signPub: payload.signPub,
-        boxPub: payload.boxPub,
-        device: payload.device,
-        provider: payload.provider,
-        issuedAt: now,
-        expiresAt: now + CERT_DAYS * 86_400_000,
-        revocationFloor,
-      },
-      this.identity,
-    );
+    const certPayload: CertPayload = {
+      kind: 'cert',
+      ownerId: this.state.ownerId,
+      agentId: preview.agentId,
+      name,
+      signPub: payload.signPub,
+      boxPub: payload.boxPub,
+      device: payload.device,
+      provider: payload.provider,
+      issuedAt: now,
+      expiresAt: now + CERT_DAYS * 86_400_000,
+      revocationFloor,
+    };
+    if (oldId !== undefined) certPayload.continues = oldId;
+    const cert = signStatement(certPayload, this.identity);
     const claim = sealClaim({
       owner: this.identity,
       ownerId: this.state.ownerId,
@@ -349,14 +388,133 @@ export class OwnerClient {
       issuedAt: now,
     });
     const body: ClaimEnrollmentRequest = { claim, cert };
-    if (replace) body.replace = replace;
+    if (oldId !== undefined) body.replace = oldId;
     const res = await this.api.call<ClaimEnrollmentResponse>(
       'POST',
       `/v1/owner/enrollments/${parsed.lookup}/claim`,
       body,
     );
     this.verifiedEnrollments.delete(parsed.lookup);
-    return { agentId: res.agentId, name: payload.name };
+    return { agentId: res.agentId, name };
+  }
+
+  /**
+   * Every agent this owner ever certified, from certs signed by a key in the verified owner chain (the relay's list is
+   * only where they are found). `live`: active, unexpired and not on the revocation list.
+   */
+  async certifiedAgents(): Promise<Map<string, { cert: CertPayload; live: boolean }>> {
+    const [list, dir] = await Promise.all([this.agents(), this.directory()]);
+    verifyOwnerChain(dir.ownerChain, this.state.ownerId);
+    const keys = dir.ownerChain.map((l) => l.payload.signPub);
+    let revoked = new Set<string>();
+    try {
+      revoked = new Set(this.checkedRevocations(dir)?.agents ?? []);
+    } catch (e) {
+      if (e instanceof RollbackError) throw e;
+      // mid-rotation the list may still carry the old key
+    }
+    const now = Date.now();
+    const out = new Map<string, { cert: CertPayload; live: boolean }>();
+    for (const a of list.agents) {
+      if (!a.cert || !keys.includes(a.cert.signer)) continue;
+      let c: CertPayload;
+      try {
+        c = verifyStatement(a.cert, 'cert', a.cert.signer);
+      } catch {
+        continue;
+      }
+      if (c.ownerId !== this.state.ownerId || c.agentId !== a.agentId) continue;
+      const live = a.status === 'active' && c.expiresAt > now && !revoked.has(c.agentId);
+      out.set(c.agentId, { cert: c, live });
+    }
+    return out;
+  }
+
+  /**
+   * After continuing `oldId` with `newId`: every grant the old agent had (not revoked, not expired, with an agent that
+   * is still live) is issued again for the new one with the same scopes, approval rule and expiry, then the old grants
+   * are revoked. Safe to run again after a failure: a grant the new agent already has is not issued twice.
+   */
+  async continueGrants(oldId: string, newId: string): Promise<number> {
+    const dir = await this.directory();
+    const key = b64(this.identity.signPub);
+    const revocations = this.checkedRevocations(dir);
+    const revokedGrants = new Set(revocations?.grants ?? []);
+    const revokedAgents = new Set(revocations?.agents ?? []);
+    const now = Date.now();
+    const liveAgents = new Set<string>();
+    for (const s of dir.certs) {
+      try {
+        const c = verifyStatement(s, 'cert', key);
+        if (c.expiresAt > now && !revokedAgents.has(c.agentId)) liveAgents.add(c.agentId);
+      } catch {
+        // signed by an older key: re-signed by resignAll, not ours to judge here
+      }
+    }
+    const grants: GrantPayload[] = [];
+    for (const s of dir.grants) {
+      try {
+        const g = verifyStatement(s, 'grant', key);
+        if (revokedGrants.has(g.grantId) || (g.expiresAt !== null && g.expiresAt <= now)) continue;
+        grants.push(g);
+      } catch {
+        // not in force
+      }
+    }
+    const moved: string[] = [];
+    let issued = 0;
+    for (const g of grants) {
+      if (g.from !== oldId && g.to !== oldId) continue;
+      let from = g.from;
+      let to = g.to;
+      if (from === oldId) from = newId;
+      if (to === oldId) to = newId;
+      moved.push(g.grantId);
+      const other = (from === newId && to) || from;
+      if (from === to || !liveAgents.has(other)) continue;
+      const has = grants.some(
+        (x) =>
+          x.from === from &&
+          x.to === to &&
+          scopesOf(x) === scopesOf(g) &&
+          x.requireApproval === g.requireApproval &&
+          x.expiresAt === g.expiresAt,
+      );
+      if (has) continue;
+      await this.grant({ from, to, scopes: g.scopes, requireApproval: g.requireApproval, expiresAt: g.expiresAt });
+      issued += 1;
+    }
+    if (moved.length) await this.revoke({ grants: moved });
+    return issued;
+  }
+
+  /** A new name (a nickname — agents address each other by it) or a corrected platform: the same cert, signed again. */
+  async updateAgent(agentId: string, change: { name?: string; provider?: string }): Promise<void> {
+    if (change.name !== undefined && !NAME_PATTERN.test(change.name)) {
+      throw new EnrollmentError('bad_name', 'use lowercase letters, digits and dashes (max 32), not "owner"');
+    }
+    const dir = await this.directory();
+    const key = b64(this.identity.signPub);
+    for (const s of dir.certs) {
+      let c: CertPayload;
+      try {
+        c = verifyStatement(s, 'cert', key);
+      } catch {
+        continue;
+      }
+      if (c.agentId !== agentId || c.ownerId !== this.state.ownerId) continue;
+      const next: CertPayload = { ...c, issuedAt: Date.now() };
+      if (change.name !== undefined) next.name = change.name;
+      if (change.provider !== undefined) next.provider = change.provider;
+      await this.api.call('POST', '/v1/owner/certs', { cert: signStatement(next, this.identity) });
+      return;
+    }
+    throw new Error('this agent has no certificate signed by this phone');
+  }
+
+  /** Take a disconnected agent off the lists (the relay keeps the row; history keeps its name). */
+  async removeAgent(agentId: string): Promise<void> {
+    await this.api.call('POST', `/v1/owner/agents/${agentId}/remove`, {});
   }
 
   /** Current revocation list version, verified with this phone's key (0 when there is none). */

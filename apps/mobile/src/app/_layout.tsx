@@ -104,6 +104,7 @@ export default function RootLayout() {
               <Stack.Screen name="request/[id]" options={{ title: '' }} />
               <Stack.Screen name="agent/[agentId]" options={{ title: '' }} />
               <Stack.Screen name="add-agent" options={{ title: '' }} />
+              <Stack.Screen name="agent-edit" options={{ title: '', presentation: 'modal' }} />
               <Stack.Screen name="new-chat" options={{ title: t('new.title'), presentation: 'modal' }} />
               <Stack.Screen name="forward" options={{ title: t('forward.title'), presentation: 'modal' }} />
               <Stack.Screen name="link" options={{ title: t('link.title'), presentation: 'modal' }} />

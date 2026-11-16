@@ -206,7 +206,7 @@ async function syncOnce(): Promise<void> {
   const signKeys = dir.ownerChain.map((l) => l.payload.signPub);
   const agents = agentsRes.agents;
   const ownerKeySince = dir.ownerChain.find((l) => l.payload.seq === current.seq)?.payload.issuedAt ?? 0;
-  setState({ agents, senderSeq: agentsRes.senderSeq, ownerKeySince });
+  setState({ agents, senderSeq: agentsRes.senderSeq, ownerKeySince, ownerSignKeys: signKeys });
   // an older permission list than this phone has seen: keep the grants we had, still sync messages, then warn
   let rollback: RollbackError | null = null;
   try {

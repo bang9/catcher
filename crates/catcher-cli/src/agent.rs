@@ -264,13 +264,18 @@ impl<'p> AgentClient<'p> {
             self.state.number("revocationVersion"),
             now_ms(),
         )?;
-        if trust.agent(&self.state.agent_id()).is_none() {
+        let Some(me) = trust.agent(&self.state.agent_id()) else {
             return Err(Error::policy(
                 "not_certified",
                 "this agent has no valid owner certificate (revoked or expired)",
             ));
-        }
+        };
         let mut changed = false;
+        // the name is a nickname the owner can change: follow the owner's current cert
+        if me.name != self.state.name() && valid_name(&me.name) {
+            self.state.set("name", Value::Str(me.name.clone()));
+            changed = true;
+        }
         if trust.owner.sign_pub != pin_sign {
             let pin = Obj::new()
                 .with("signPub", &trust.owner.sign_pub)

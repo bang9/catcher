@@ -38,6 +38,11 @@ const routes: [string, RegExp, Handler][] = [
   ['POST', /^\/v1\/owner\/push-tokens\/delete$/, authed(({ env, body }, c) => h.deletePushToken(env, c, body))],
   ['GET', /^\/v1\/owner\/agents$/, authed(({ env }, c) => h.listAgents(env, c))],
   [
+    'POST',
+    /^\/v1\/owner\/agents\/(a_[0-9a-z]+)\/remove$/,
+    authed(({ env, params }, c) => h.removeAgent(env, c, params[0]!)),
+  ],
+  [
     'GET',
     /^\/v1\/owner\/enrollments\/([0-9A-Z]{5})$/,
     authed(({ env, params }, c) => enroll.ownerEnrollment(env, c, params[0]!)),

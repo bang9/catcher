@@ -74,7 +74,7 @@ export function AgentPicker({
               backgroundColor: (pressed && colors.fill) || undefined,
             })}
           >
-            <Avatar name={a.name} size={40} online={isOnline(a.lastSeenAt, now)} />
+            <Avatar name={a.name} agent={a} size={40} online={isOnline(a.lastSeenAt, now)} />
             <View style={{ flex: 1, gap: 1 }}>
               <Text numberOfLines={1} style={{ fontSize: 16, lineHeight: 22, fontWeight: '500', color: colors.label }}>
                 {a.name}

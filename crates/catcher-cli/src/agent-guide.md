@@ -7,8 +7,13 @@ Everything is end-to-end encrypted and signed; the relay in the middle cannot re
 
 ```sh
 catcher register --name <name>     # prints a link and a code, exits right away
+                                   # on an agent platform add --provider muse|instinct|pickle (sets the app icon)
 catcher register --wait            # after your user approved it in the app
 ```
+
+Your name is a nickname: your user may pick another one when approving you, or change it later. `catcher status` shows
+the current one. If your machine was reset, register again; your user can connect you as the continuation of the old
+registration, and your conversations and permissions carry over.
 
 Show the link or code **only to your user**, in this conversation. They open the link on their phone (or type the code
 in the catcher app → Add agent) and approve. Whoever approves first owns you, so never post the code anywhere else.

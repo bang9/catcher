@@ -1,7 +1,7 @@
 // The signed-in app: a chat canvas with a sidebar, like a chat assistant. The sidebar lists the agents (each one is a
 // conversation), what waits on the owner, the activity log and settings.
 
-import { useColorScheme } from 'react-native';
+import { useColorScheme, useWindowDimensions } from 'react-native';
 import { Drawer } from 'expo-router/drawer';
 import type { DrawerNavigationOptions } from 'expo-router/drawer';
 import { t } from '@/i18n';
@@ -12,11 +12,13 @@ import { fontFamily } from '@/ui/text';
 
 export default function MainLayout() {
   const scheme = useColorScheme();
+  const { width } = useWindowDimensions();
   const options = ({ navigation }: { navigation: { openDrawer: () => void } }): DrawerNavigationOptions => ({
     drawerType: 'slide',
     drawerStyle: { width: '82%', backgroundColor: hex('sidebar', scheme) },
     overlayColor: 'rgba(0,0,0,0.12)',
-    swipeEdgeWidth: 64,
+    // a swipe anywhere opens it: Android's gesture navigation owns the screen edge (an edge swipe there means back)
+    swipeEdgeWidth: width,
     headerTitleAlign: 'center',
     headerShadowVisible: false,
     headerStyle: { backgroundColor: hex('background', scheme) },

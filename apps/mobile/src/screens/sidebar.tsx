@@ -2,7 +2,7 @@
 // talking, a group), most recent first; agents and settings at the bottom. ✎ starts a new conversation.
 
 import type { ReactNode } from 'react';
-import { type ColorValue, Pressable, ScrollView, View } from 'react-native';
+import { type ColorValue, Image, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import type { DrawerContentComponentProps } from 'expo-router/drawer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,7 @@ import { useNow, useOwnerId, usePending } from '@/state/selectors';
 import { useApp } from '@/state/store';
 import { colors } from '@/ui/colors';
 import { EDGE, GLYPH, HIT, Icon, IconButton, tap } from '@/ui/kit';
+import { platformOf, ringColor } from '@/ui/platforms';
 import { Text } from '@/ui/text';
 import { preview } from './parts';
 
@@ -80,15 +81,35 @@ function Count({ n }: { n: number }) {
   );
 }
 
-/** A round initial for an agent, with a green dot while it is connected. */
+/** Agents that share a platform with another of the owner's agents: their avatars get a colored ring to tell apart. */
+function useSharesPlatform(agent: AgentSummary | undefined): boolean {
+  return useApp((s) => {
+    const p = agent && platformOf(agent.provider);
+    if (!agent || !p) return false;
+    return s.agents.some(
+      (a) => a.agentId !== agent.agentId && a.status === 'active' && platformOf(a.provider)?.id === p.id,
+    );
+  });
+}
+
+/**
+ * An agent's face: its platform's icon when it runs on one the app knows (Muse, Pickle, …), otherwise its initial; a
+ * green dot while it is connected. Two agents on the same platform get a colored ring each, so they read as two.
+ */
 export function Avatar({
   name,
+  agent,
+  provider,
   online,
   size = 32,
   ring,
   surface = colors.background,
 }: {
   name: string;
+  /** shows the platform icon and the telling-apart ring */
+  agent?: AgentSummary;
+  /** the platform, for an agent that is not connected yet */
+  provider?: string;
   online?: boolean;
   size?: number;
   /** outline in the surface color, so stacked avatars read as separate */
@@ -96,6 +117,32 @@ export function Avatar({
   /** what the avatar sits on: rings and the online dot's border are cut out in this color */
   surface?: ColorValue;
 }) {
+  const platform = platformOf(agent?.provider ?? provider);
+  const shared = useSharesPlatform(agent);
+  let face = (
+    <Text style={{ fontSize: size * 0.42, lineHeight: size * 0.6, fontWeight: '600', color: colors.label }}>
+      {(name.trim()[0] ?? '?').toUpperCase()}
+    </Text>
+  );
+  let border: ColorValue = colors.separator;
+  let width = 1;
+  if (ring) {
+    border = surface;
+    width = 2;
+  }
+  if (platform) {
+    face = (
+      <Image
+        source={platform.icon}
+        accessibilityIgnoresInvertColors
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+      />
+    );
+    if (shared && agent) {
+      border = ringColor(agent.agentId);
+      width = Math.max(2, Math.round(size / 16));
+    }
+  }
   return (
     <View style={{ width: size, height: size }}>
       <View
@@ -105,14 +152,24 @@ export function Avatar({
           borderRadius: size / 2,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: colors.card,
-          borderWidth: (ring && 2) || 1,
-          borderColor: (ring && surface) || colors.separator,
+          // icons with transparent corners sit on white, like on a home screen; an initial on a card stays visible
+          backgroundColor: (platform && '#FFFFFF') || (surface === colors.card && colors.fill) || colors.card,
         }}
       >
-        <Text style={{ fontSize: size * 0.42, fontWeight: '600', color: colors.label }}>
-          {(name.trim()[0] ?? '?').toUpperCase()}
-        </Text>
+        {face}
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderRadius: size / 2,
+            borderWidth: width,
+            borderColor: border,
+          }}
+        />
       </View>
       {online && (
         <View
@@ -150,6 +207,7 @@ export function AvatarStack({
     return (
       <Avatar
         name={a?.name ?? '?'}
+        agent={a}
         size={size}
         online={!!a && now !== undefined && isOnline(a.lastSeenAt, now)}
         surface={surface}
@@ -161,10 +219,10 @@ export function AvatarStack({
   return (
     <View style={{ width: size, height: size }}>
       <View style={{ position: 'absolute', left: 0, top: 0 }}>
-        <Avatar name={agents[0]?.name ?? '?'} size={small} ring surface={surface} />
+        <Avatar name={agents[0]?.name ?? '?'} agent={agents[0]} size={small} ring surface={surface} />
       </View>
       <View style={{ position: 'absolute', right: 0, bottom: 0 }}>
-        {extra <= 0 && <Avatar name={agents[1]?.name ?? '?'} size={small} ring surface={surface} />}
+        {extra <= 0 && <Avatar name={agents[1]?.name ?? '?'} agent={agents[1]} size={small} ring surface={surface} />}
         {extra > 0 && (
           <View
             style={{
@@ -275,6 +333,10 @@ export function Sidebar(props: DrawerContentComponentProps) {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: gutter, paddingBottom: 16 }}>
+        <Item testID="nav-home" selected={here.name === 'index'} onPress={() => go(() => router.navigate('/'))}>
+          <Icon ios="house" android="home" size={20} />
+          <Text style={label}>{t('nav.home')}</Text>
+        </Item>
         <Item testID="nav-inbox" selected={here.name === 'inbox'} onPress={() => go(() => router.navigate('/inbox'))}>
           <Icon ios="tray" android="inbox" size={20} />
           <Text style={label}>{t('inbox.title')}</Text>

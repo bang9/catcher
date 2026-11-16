@@ -425,14 +425,22 @@ fn cmd_register(ctx: &Ctx) -> Result<i32> {
         });
         match register::start(&ctx.profile, new.as_ref())? {
             Start::Registered(state) => {
+                // the owner may have renamed this agent (names are nicknames): same agent, report it as it is now
+                let state = client(ctx)
+                    .ok()
+                    .map(|mut c| {
+                        let _ = c.trust(TrustOpts {
+                            refresh: true,
+                            known_version: None,
+                        });
+                        c.state
+                    })
+                    .unwrap_or(state);
                 if name.is_some_and(|n| n != state.name()) {
-                    return Err(Error::cli(
-                        format!(
-                            "profile \"{}\" already has an agent ({}) — use --profile <other> for another one",
-                            ctx.profile.name,
-                            state.name()
-                        ),
-                        1,
+                    stderr(&format!(
+                        "catcher: profile \"{}\" is already registered as {} — that is this agent. For another agent use --profile <other>.\n",
+                        ctx.profile.name,
+                        state.name()
                     ));
                 }
                 registered(ctx, &state);

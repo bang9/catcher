@@ -4,7 +4,7 @@
 import type { AgentSummary, AnswerBody } from '@catcher/protocol';
 import type { LocalItem } from '@/lib/db';
 import { getState, requireOwner, setState } from './store';
-import { syncQuietly, withSeqRetry } from './sync';
+import { sync, syncQuietly, withSeqRetry } from './sync';
 
 function settle(id: string, text: string): void {
   setState({ settled: { ...getState().settled, [id]: text } });
@@ -37,4 +37,24 @@ export async function releaseHeld(item: LocalItem, shown: string): Promise<void>
 export async function dropHeld(item: LocalItem, shown: string): Promise<void> {
   await requireOwner().dropHeld(item.id);
   settle(item.id, shown);
+}
+
+// ─── the owner's agents ──────────────────────────────────────────────────────
+
+/** A new name and/or platform for a connected agent (a new owner-signed cert). Resolves once the relay has it. */
+export async function updateAgent(agentId: string, change: { name?: string; provider?: string }): Promise<void> {
+  await requireOwner().updateAgent(agentId, change);
+  await sync().catch(() => undefined);
+}
+
+/** Take a disconnected agent off the lists. */
+export async function removeAgent(agentId: string): Promise<void> {
+  await requireOwner().removeAgent(agentId);
+  await sync().catch(() => undefined);
+}
+
+/** Continuing an old agent left some of its grants behind (a dropped connection): move them now. */
+export async function moveGrants(oldId: string, newId: string): Promise<void> {
+  await requireOwner().continueGrants(oldId, newId);
+  await sync().catch(() => undefined);
 }

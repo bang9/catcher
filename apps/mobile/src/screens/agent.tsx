@@ -1,16 +1,21 @@
 // One agent: fingerprint, certificate, grants from/to it, chat, create access, disconnect.
 
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, View } from 'react-native';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { t } from '@/i18n';
 import { describeError } from '@/lib/errors';
-import { ago, shortDate } from '@/lib/format';
+import { ago, isOnline, shortDate } from '@/lib/format';
+import { moveGrants, removeAgent } from '@/state/actions';
 import { useNow } from '@/state/selectors';
 import { type GrantView, requireOwner, useApp } from '@/state/store';
 import { sync } from '@/state/sync';
+import { colors } from '@/ui/colors';
 import { Banner, Button, Code, Empty, Group, Info, Pill, Row, Screen, SectionTitle } from '@/ui/kit';
+import { providerLabel } from '@/ui/platforms';
+import { Text } from '@/ui/text';
 import { statusLabel } from './agents';
+import { Avatar } from './sidebar';
 
 function grantLine(g: GrantView): string {
   const parts = [g.scopes.join(', ')];
@@ -63,7 +68,7 @@ function GrantList({
 }
 
 export function AgentScreen() {
-  const { agentId, connected } = useLocalSearchParams<{ agentId: string; connected?: string }>();
+  const { agentId, connected } = useLocalSearchParams<{ agentId: string; connected?: string; grantsLeft?: string }>();
   const agent = useApp((s) => s.agents.find((a) => a.agentId === agentId));
   const agents = useApp((s) => s.agents);
   const grants = useApp((s) => s.grants);
@@ -83,6 +88,10 @@ export function AgentScreen() {
   const names = (id: string) => agents.find((a) => a.agentId === id)?.name ?? id;
   const from = grants.filter((g) => g.from === agent.agentId);
   const to = grants.filter((g) => g.to === agent.agentId);
+  // continues an old agent: grants of the old one that are still in force did not move over yet
+  const oldId = agent.cert?.payload.continues;
+  const old = agents.find((a) => a.agentId === oldId);
+  const left = grants.filter((g) => !!oldId && (g.from === oldId || g.to === oldId) && !g.revoked && !g.expired);
 
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -123,6 +132,21 @@ export function AgentScreen() {
     ]);
   };
 
+  const remove = () => {
+    Alert.alert(t('agent.removeTitle', { name: agent.name }), t('agent.removeBody'), [
+      { text: t('common.close'), style: 'cancel' },
+      {
+        text: t('agent.remove'),
+        style: 'destructive',
+        onPress: () =>
+          void act(async () => {
+            await removeAgent(agent.agentId);
+            if (router.canGoBack()) router.back();
+          }),
+      },
+    ]);
+  };
+
   let lastSeen = t('presence.never');
   if (agent.lastSeenAt) lastSeen = ago(agent.lastSeenAt, now);
   let certExpiry = '—';
@@ -142,7 +166,40 @@ export function AgentScreen() {
 
   return (
     <Screen testID="agent-detail" onRefresh={sync} footer={footer}>
-      <Stack.Screen options={{ title: agent.name }} />
+      <Stack.Screen options={{ title: '' }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <Avatar name={agent.name} agent={agent} size={64} online={active && isOnline(agent.lastSeenAt, now)} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text
+            testID="agent-name"
+            selectable
+            numberOfLines={1}
+            style={{ fontSize: 28, lineHeight: 34, fontWeight: '700', color: colors.label }}
+          >
+            {agent.name}
+          </Text>
+          <Text numberOfLines={1} style={{ fontSize: 15, color: colors.secondaryLabel }}>
+            {`${providerLabel(agent.provider)} · ${statusLabel(agent.status)}`}
+          </Text>
+        </View>
+      </View>
+      {left.length > 0 && (
+        <>
+          <Banner
+            testID="agent-grants-left"
+            tone="warning"
+            title={t('agent.grantsLeftTitle', { count: left.length, name: old?.name ?? '' })}
+            body={t('agent.grantsLeftBody')}
+          />
+          <Button
+            testID="agent-move-grants"
+            kind="secondary"
+            label={t('agent.moveGrants')}
+            busy={busy}
+            onPress={() => void act(() => moveGrants(oldId ?? '', agent.agentId))}
+          />
+        </>
+      )}
       {connected === '1' && active && (
         <Banner
           testID="agent-connected"
@@ -156,11 +213,12 @@ export function AgentScreen() {
       <Code testID="agent-fingerprint" value={owner.agentFingerprint(agent)} size={22} />
       <Group>
         <Info first label={t('field.status')} value={statusLabel(agent.status)} />
-        <Info label={t('field.provider')} value={agent.provider} />
+        <Info label={t('field.provider')} value={providerLabel(agent.provider)} />
         <Info label={t('field.device')} value={agent.device} />
         <Info label={t('field.lastSeen')} value={lastSeen} />
         <Info label={t('field.certExpiry')} value={certExpiry} />
         <Info label={t('field.registered')} value={shortDate(agent.createdAt)} />
+        {old && <Info label={t('field.continues')} value={old.name} />}
       </Group>
       {active && (
         <>
@@ -174,8 +232,17 @@ export function AgentScreen() {
             label={t('link.title')}
             onPress={() => router.push({ pathname: '/link', params: { a: agent.agentId } })}
           />
+          <Button
+            testID="agent-edit"
+            kind="secondary"
+            label={t('agent.edit')}
+            onPress={() => router.push({ pathname: '/agent-edit', params: { agentId: agent.agentId } })}
+          />
           <Button testID="agent-revoke" kind="danger" label={t('agent.revoke')} busy={busy} onPress={revokeAgent} />
         </>
+      )}
+      {!active && !agent.removedAt && (
+        <Button testID="agent-remove" kind="danger" label={t('agent.remove')} busy={busy} onPress={remove} />
       )}
     </Screen>
   );

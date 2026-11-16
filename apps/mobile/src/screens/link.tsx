@@ -31,7 +31,7 @@ const EXPIRY: { key: Key; ms: number | null }[] = [
 ];
 
 /** A row of pill choices, one picked. */
-function Choice<T extends string | number>({
+export function Choice<T extends string | number>({
   options,
   value,
   onChange,
@@ -108,7 +108,7 @@ function Pair({
   }
   const slot = (x: AgentSummary) => (
     <Pressable accessibilityRole="button" onPress={onClear} style={{ flex: 1, alignItems: 'center', gap: 8 }}>
-      <Avatar name={x.name} size={56} surface={colors.card} />
+      <Avatar name={x.name} agent={x} size={56} surface={colors.card} />
       <Text numberOfLines={1} style={{ fontSize: 15, lineHeight: 20, fontWeight: '600', color: colors.label }}>
         {x.name}
       </Text>

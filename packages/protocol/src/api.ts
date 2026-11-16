@@ -40,6 +40,8 @@ export interface AgentSummary {
   createdAt: number;
   lastSeenAt: number | null;
   cert: Signed<CertPayload> | null;
+  /** the owner removed this (revoked) agent from their lists; it stays known so old history keeps its name */
+  removedAt?: number | null;
 }
 
 export interface ApiError {
@@ -72,7 +74,7 @@ export interface OwnerEnrollmentResponse {
 export interface ClaimEnrollmentRequest {
   claim: Signed<ClaimPayload>;
   cert: Signed<CertPayload>;
-  /** the old same-name agent, already revoked by the owner, that this agent replaces */
+  /** the owner's old agent, already revoked by the owner, that this agent continues (cert.continues names it too) */
   replace?: string;
 }
 export interface ClaimEnrollmentResponse {

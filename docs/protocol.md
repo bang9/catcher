@@ -26,15 +26,15 @@ their seed in `~/.catcher/profiles/<name>/state.json` (mode 0600).
 `{payload, signer, sig}` where `sig = Ed25519(canonical({ctx: "catcher/v1/statement", payload}))`. Canonical JSON:
 sorted keys, no whitespace, safe integers only.
 
-| kind          | signed by                       | meaning                                                                |
-| ------------- | ------------------------------- | ---------------------------------------------------------------------- |
-| `owner-key`   | itself (seq 0) / previous key   | owner key chain; agents walk it forward from the key they pinned       |
-| `cert`        | owner                           | agent id, name, keys, device, provider, expiry, revocation floor       |
-| `grant`       | owner                           | `from` may send `scopes` to `to`; optional `requireApproval`, expiry   |
-| `revocations` | owner                           | monotonically versioned list of revoked agents and grants              |
-| `release`     | owner                           | lets one held envelope through; bound to its id and ciphertext hash    |
-| `enroll`      | the agent (signer = `signPub`)  | an agent asks to be registered under a code's lookup (see below)       |
-| `claim`       | owner (signer = `ownerSignPub`) | the owner who has the code claims the agent; carries the sealed secret |
+| kind          | signed by                       | meaning                                                                                                                   |
+| ------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `owner-key`   | itself (seq 0) / previous key   | owner key chain; agents walk it forward from the key they pinned                                                          |
+| `cert`        | owner                           | agent id, name, keys, device, provider, expiry, revocation floor, and `continues` for an agent that takes over an old one |
+| `grant`       | owner                           | `from` may send `scopes` to `to`; optional `requireApproval`, expiry                                                      |
+| `revocations` | owner                           | monotonically versioned list of revoked agents and grants                                                                 |
+| `release`     | owner                           | lets one held envelope through; bound to its id and ciphertext hash                                                       |
+| `enroll`      | the agent (signer = `signPub`)  | an agent asks to be registered under a code's lookup (see below)                                                          |
+| `claim`       | owner (signer = `ownerSignPub`) | the owner who has the code claims the agent; carries the sealed secret                                                    |
 
 Agents reject a revocation list older than one they have seen (rollback).
 
@@ -63,7 +63,15 @@ KEK    = HKDF-SHA256(X25519(eph, agentBoxPub), salt = ephPub ‖ agentBoxPub, in
 sealed = b64url(XChaCha20-Poly1305(KEK, nonce, S, aad))
 ```
 
-The owner signs the cert at the same time; device and provider are copied verbatim from `enroll`.
+The owner signs the cert at the same time; device and provider are copied verbatim from `enroll`. The name starts as
+the one the agent asked for, but it is the owner's pick: a **nickname**, unique among the owner's live agents (agents
+address each other by it), that the owner can change later with a new cert (`POST /v1/owner/certs`; the agent adopts
+the name in its current cert). The agent id is the identity. Agents finalise with whatever valid name the cert carries.
+
+An agent whose machine was reset comes back with a new key and so a new id. The owner can connect it as the
+continuation of an old agent: the old one is revoked first (if it is still live), the new cert names it in
+`continues`, the claim carries it as `replace`, and the owner's app re-issues the old agent's grants for the new id
+(same scopes, approval rule and expiry) and revokes the old grants. The app shows both ids as one conversation.
 
 | step | owner app (only L leaves the phone before step 4 passes)             | agent (`catcher register --wait`, or any later command)       |
 | ---- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
@@ -76,11 +84,13 @@ The owner signs the cert at the same time; device and provider are copied verbat
 
 A failure in agent steps 1–4 deletes the registration (one guess only). Key rotation: the agent pins the key that
 signed the claim and walks the owner key chain forward from it. The relay accepts a claim and cert only when signed by
-the owner's current key, for that lookup, with the agent keys and name of the enroll statement.
+the owner's current key, for that lookup, with the agent keys, device and provider of the enroll statement and a free
+name.
 
 Relay endpoints: `POST /v1/enroll` (unauthenticated; the statement is self-signed), `GET /v1/enroll/{L}` (the agent
 polls for its claim, signing with the enrolling key and its derived agent id), `GET /v1/owner/enrollments/{L}` and
-`POST /v1/owner/enrollments/{L}/claim` (owner). Codes live 10 minutes from the agent's `issuedAt` (the agent ignores the
+`POST /v1/owner/enrollments/{L}/claim` (owner). `POST /v1/owner/agents/{id}/remove` takes a revoked agent off the
+owner's lists; the row stays, so its key stays taken. Codes live 10 minutes from the agent's `issuedAt` (the agent ignores the
 relay's expiry); an expired lookup stays reserved for its original key for a day. The agent drops a registration only
 once the relay says the code is gone (404/410): a claim that arrived in time still finalises later.
 

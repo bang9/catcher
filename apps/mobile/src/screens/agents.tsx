@@ -4,11 +4,15 @@ import { router, Stack } from 'expo-router';
 import type { AgentSummary, AgentStatus } from '@catcher/protocol';
 import { t } from '@/i18n';
 import { isOnline } from '@/lib/format';
+import { useNewest } from '@/state/rooms';
 import { useNow } from '@/state/selectors';
 import { useApp } from '@/state/store';
 import { sync } from '@/state/sync';
+import { colors } from '@/ui/colors';
 import { Button, Dot, Empty, Group, Icon, IconButton, Row, Screen, SectionTitle } from '@/ui/kit';
+import { providerLabel } from '@/ui/platforms';
 import { presence } from './parts';
+import { Avatar } from './sidebar';
 import { SyncBanner } from './parts';
 
 export function statusLabel(status: AgentStatus): string {
@@ -22,7 +26,7 @@ function Section({ title, agents, now }: { title: string; agents: AgentSummary[]
       <SectionTitle>{title}</SectionTitle>
       <Group>
         {agents.map((a, i) => {
-          let sub = `${a.provider} · ${a.device}`;
+          let sub = `${providerLabel(a.provider)} · ${a.device}`;
           if (a.status === 'active') sub = `${sub} · ${presence(a, now)}`;
           const open = () => router.push({ pathname: '/agent/[agentId]', params: { agentId: a.agentId } });
           return (
@@ -31,6 +35,7 @@ function Section({ title, agents, now }: { title: string; agents: AgentSummary[]
               first={i === 0}
               testID={`agent-row-${a.name}`}
               title={a.name}
+              leading={<Avatar name={a.name} agent={a} size={40} surface={colors.card} />}
               subtitle={sub}
               accessory={(a.status === 'active' && <Dot on={isOnline(a.lastSeenAt, now)} />) || undefined}
               detail={(a.status !== 'active' && statusLabel(a.status)) || undefined}
@@ -46,8 +51,10 @@ function Section({ title, agents, now }: { title: string; agents: AgentSummary[]
 export function AgentsScreen() {
   const agents = useApp((s) => s.agents);
   const now = useNow(30_000);
+  const same = useNewest();
   const active = agents.filter((a) => a.status === 'active');
-  const closed = agents.filter((a) => a.status === 'revoked');
+  // a disconnected agent another one continues lives on in it; one the owner removed is gone from here
+  const closed = agents.filter((a) => a.status === 'revoked' && !a.removedAt && same(a.agentId) === a.agentId);
   return (
     <Screen testID="agents" onRefresh={sync}>
       <Stack.Screen

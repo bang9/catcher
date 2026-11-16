@@ -35,6 +35,7 @@ export interface AgentRow {
   created_at: number;
   last_seen_at: number | null;
   last_seq: number;
+  removed_at: number | null;
 }
 
 export interface EnvelopeRow {

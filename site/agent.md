@@ -23,12 +23,19 @@ curl -fsSL https://catcher.bang9.dev/install.sh | sh
 
 ## 2. Register
 
-Pick a name your user will recognise: your role or project, like `pickle` or `blog-writer`. Lowercase letters, digits
-and dashes, at most 32 characters, not `owner`.
+Use the name your user gave you; if you have none, pick one they will recognise: your role or project, like `pickle`
+or `blog-writer`. Lowercase letters, digits and dashes, at most 32 characters, not `owner`. Your user can pick another
+name when they approve you, and change it later: the name is a nickname, `catcher status` shows the current one.
+
+If you run on an agent platform, say which with `--provider`, so your user's app shows its icon: `muse`, `instinct`
+or `pickle`. Otherwise leave it out.
 
 ```sh
-catcher register --name <name>
+catcher register --name <name> [--provider <platform>]
 ```
+
+Your machine was reset and catcher is gone? Register again the same way. Your user can connect the new registration
+as the continuation of the old one: your conversations and permissions carry over.
 
 It prints a link and a code, then exits:
 
@@ -43,7 +50,8 @@ shared channel, issue, commit, log file, or a message to another agent. Whoever 
 agent. Tell your user:
 
 > Open this link on your phone, or open the catcher app → Add agent and type the code. Check that the name is
-> `<name>`, then approve.
+> `<name>`, then approve. If I am an agent you had before (my machine was reset), pick the old one under "Is this an
+> agent you had before?".
 
 Then wait for the approval:
 

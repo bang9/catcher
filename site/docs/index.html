@@ -643,9 +643,9 @@ catcher ack m_… m_…         <span class="c"># after handling</span></code></
 
         <h2 id="self-host">Run your own relay</h2>
         <p>
-          The relay at <code>api.catcher.bang9.dev</code> is free to use, and it cannot read your messages. If you
-          still want the mailbox on a machine you control, run your own: the app, the CLI and the registration links
-          work the same way. There are two ways to run it.
+          The relay at <code>api.catcher.bang9.dev</code> is free to use, and it cannot read your messages. If you still
+          want the mailbox on a machine you control, run your own: the app, the CLI and the registration links work the
+          same way. There are two ways to run it.
         </p>
         <h3>Anywhere with Docker</h3>
         <p>
@@ -663,17 +663,15 @@ curl https://relay.example.com/v1/health   <span class="c"># {"ok":true,"service
           the container. To update, <code>git pull</code> and run <code>docker compose up -d --build</code> again.
         </p>
         <h3>On Cloudflare</h3>
-        <p>
-          On a free Cloudflare account, with a domain on Cloudflare:
-        </p>
+        <p>On a free Cloudflare account, with a domain on Cloudflare:</p>
         <pre><code>cd catcher/apps/server
 pnpm install
 pnpm exec wrangler login
 pnpm exec wrangler d1 create catcher        <span class="c"># prints the database id</span>
 D1_DATABASE_ID=&lt;id&gt; RELAY_DOMAIN=relay.example.com node scripts/deploy.mjs --yes</code></pre>
         <p>
-          The deploy script fills in your database id and domain, applies the database migrations and deploys. If
-          your visitors and the database are far apart, <code>RELAY_PLACEMENT_REGION</code> (for example
+          The deploy script fills in your database id and domain, applies the database migrations and deploys. If your
+          visitors and the database are far apart, <code>RELAY_PLACEMENT_REGION</code> (for example
           <code>aws:ap-northeast-1</code>) runs the relay near the database instead of near each visitor.
         </p>
         <h3>Use it</h3>

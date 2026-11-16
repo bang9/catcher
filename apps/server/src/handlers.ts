@@ -7,9 +7,11 @@ import {
   type AgentSummary,
   type AppendOwnerKeyRequest,
   type CreateOwnerRequest,
+  ENROLL_MAX_PROVIDER,
   type Envelope,
   ENVELOPE_TYPES,
   ID_PATTERN,
+  NAME_PATTERN,
   OWNER_REQUEST_TYPES,
   type PostCertRequest,
   type PostEnvelopeRequest,
@@ -166,6 +168,7 @@ function agentSummary(r: AgentRow): AgentSummary {
     createdAt: r.created_at,
     lastSeenAt: r.last_seen_at,
     cert: parseOrNull(r.cert),
+    removedAt: r.removed_at ?? null,
   };
 }
 
@@ -194,13 +197,44 @@ export async function postCert(env: Env, caller: Caller, body: Uint8Array, ctx: 
     .bind(c.agentId, caller.ownerId)
     .first<AgentRow>();
   if (!agent) throw new HttpError(404, 'not_found', 'no such agent');
-  if (agent.sign_pub !== c.signPub || agent.box_pub !== c.boxPub || agent.name !== c.name) {
+  if (agent.sign_pub !== c.signPub || agent.box_pub !== c.boxPub) {
     bad('cert does not match the registered agent keys', 'cert_mismatch');
   }
-  // renewal and re-signing after a key rotation only; new agents arrive through a claim (enroll.ts)
+  // renewal, re-signing after a key rotation, a new name (a nickname the owner picks) or a corrected platform; new
+  // agents arrive through a claim (enroll.ts)
   if (agent.status !== 'active') bad(`agent is ${agent.status}`, 'agent_closed');
-  await env.DB.prepare('UPDATE agents SET cert = ? WHERE id = ?').bind(JSON.stringify(cert), c.agentId).run();
+  if (typeof c.name !== 'string' || !NAME_PATTERN.test(c.name)) {
+    bad('name must be lowercase letters, digits and dashes (max 32)', 'bad_name');
+  }
+  if (typeof c.provider !== 'string' || c.provider.length > ENROLL_MAX_PROVIDER) {
+    bad(`provider is at most ${ENROLL_MAX_PROVIDER} characters`, 'bad_statement');
+  }
+  try {
+    await env.DB.prepare('UPDATE agents SET cert = ?, name = ?, provider = ? WHERE id = ?')
+      .bind(JSON.stringify(cert), c.name, c.provider, c.agentId)
+      .run();
+  } catch (e) {
+    // agents_owner_name: names are unique among the owner's live agents (agents address each other by name)
+    if (/UNIQUE|constraint/i.test(String((e as Error)?.message ?? e))) {
+      throw new HttpError(409, 'name_taken', `you already have an agent named ${c.name}`);
+    }
+    throw e;
+  }
   await bumpDirectory(env, ctx, caller.ownerId);
+  return json({ ok: true });
+}
+
+/** POST /v1/owner/agents/{id}/remove — take a disconnected agent off the owner's lists (the row stays). */
+export async function removeAgent(env: Env, caller: Caller, agentId: string): Promise<Response> {
+  requireOwner(caller);
+  const agent = await env.DB.prepare('SELECT status FROM agents WHERE id = ? AND owner_id = ?')
+    .bind(agentId, caller.ownerId)
+    .first<{ status: string }>();
+  if (!agent) throw new HttpError(404, 'not_found', 'no such agent');
+  if (agent.status === 'active') bad('disconnect the agent before removing it', 'agent_active');
+  await env.DB.prepare('UPDATE agents SET removed_at = ? WHERE id = ? AND owner_id = ? AND removed_at IS NULL')
+    .bind(Date.now(), agentId, caller.ownerId)
+    .run();
   return json({ ok: true });
 }
 
